@@ -103,6 +103,86 @@ def verify_no_slide_leakage(
     print(f"✓ No slide leakage ({len(train_slides)} train, {len(val_slides)} val slides)")
 
 
+def create_chunk_reader(
+    shuffle: bool = True,
+    seed: int = 42
+):
+    """
+    Create a function that reads a single chunk file for interleave.
+
+    Used for training where parallel loading provides better performance
+    and natural cross-chunk diversity.
+
+    Returns a callable for use with tf.data.Dataset.interleave()
+    """
+    rng = np.random.default_rng(seed)
+
+    def read_chunk(file_path, label, max_patches_tensor):
+        """Python function to read chunk (called via tf.py_function)."""
+        path = file_path.numpy().decode('utf-8')
+        external_label = label.numpy()
+        max_p = max_patches_tensor.numpy()
+
+        try:
+            with np.load(path, mmap_mode="r") as data:
+                X_mmap = data['X']
+                n = len(X_mmap)
+
+                # Determine indices BEFORE loading to preserve mmap benefits
+                if max_p > 0 and n > max_p:
+                    if shuffle:
+                        idx = rng.choice(n, max_p, replace=False)
+                    else:
+                        idx = np.arange(max_p)
+                    idx = np.sort(idx)  # Sequential access is faster for mmap
+                else:
+                    idx = np.arange(n)
+
+                # Load only selected indices and convert to float32
+                X = X_mmap[idx].astype(np.float32)
+                n = len(X)
+
+                # Ensure [0, 1] range - check a small sample first
+                if X[:min(10, n)].max() > 1.5:
+                    X = X / 255.0
+                X = np.clip(X, 0.0, 1.0)
+
+                # Use external label (for binary remapping)
+                y = np.full(n, external_label, dtype=np.int32)
+
+                return X, y
+
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+            return np.empty((0, 224, 224, 3), np.float32), np.empty(0, np.int32)
+        finally:
+            gc.collect()
+
+    def tf_read_chunk(file_path, label, max_patches_per_chunk):
+        max_p = tf.constant(
+            -1 if max_patches_per_chunk is None else int(max_patches_per_chunk),
+            dtype=tf.int32
+        )
+
+        patches, labels = tf.py_function(
+            read_chunk,
+            [file_path, label, max_p],
+            [tf.float32, tf.int32]
+        )
+
+        patches.set_shape([None, 224, 224, 3])
+        labels.set_shape([None])
+
+        ds = tf.data.Dataset.from_tensor_slices((patches, labels))
+
+        if shuffle:
+            ds = ds.shuffle(buffer_size=1024, seed=seed)
+
+        return ds
+
+    return tf_read_chunk
+
+
 def create_chunk_generator(
     chunk_files: List[str],
     labels: List[int],
@@ -113,8 +193,8 @@ def create_chunk_generator(
     """
     Create a generator that yields individual patches from chunk files.
 
-    This approach avoids materializing entire chunks as tensors, which
-    prevents the memory issues caused by from_tensor_slices.
+    Used for validation where memory safety is critical. Avoids materializing
+    entire chunks as tensors, preventing RAM crashes.
     """
     rng = np.random.default_rng(seed)
     file_indices = list(range(len(chunk_files)))
@@ -168,27 +248,73 @@ def create_chunk_generator(
             break
 
 
-def create_dataset(
+def create_train_dataset(
     chunk_files: List[str],
     labels: List[int],
     batch_size: int = 32,
-    shuffle: bool = True,
     max_patches_per_chunk: int = None,
-    cycle_length: int = 4  # Kept for API compatibility, not used in generator approach
+    cycle_length: int = 4
 ) -> tf.data.Dataset:
     """
-    Create a tf.data.Dataset from chunk files using a generator.
+    Create a training dataset using interleave for parallel loading.
 
-    This approach uses from_generator instead of interleave + from_tensor_slices,
-    which prevents memory issues from tensor materialization.
+    Uses interleave + from_tensor_slices for better performance and natural
+    cross-chunk diversity. Safe for training because max_patches_per_chunk
+    limits memory usage per chunk.
 
     Args:
         chunk_files: List of chunk file paths
         labels: List of labels for each chunk
         batch_size: Batch size
-        shuffle: Whether to shuffle (True for train, False for val)
-        max_patches_per_chunk: Memory control
-        cycle_length: Unused, kept for API compatibility
+        max_patches_per_chunk: Memory control (required for safe operation)
+        cycle_length: Chunks to read in parallel
+
+    Returns:
+        tf.data.Dataset yielding (batch_x, batch_y)
+    """
+    # Create file dataset
+    file_ds = tf.data.Dataset.from_tensor_slices((chunk_files, labels))
+    file_ds = file_ds.shuffle(len(chunk_files), seed=42, reshuffle_each_iteration=True)
+
+    # Create chunk reader
+    chunk_reader = create_chunk_reader(shuffle=True)
+
+    # Interleave chunks for parallel loading and natural diversity
+    dataset = file_ds.interleave(
+        lambda fp, lbl: chunk_reader(fp, lbl, max_patches_per_chunk),
+        cycle_length=cycle_length,
+        block_length=4,
+        num_parallel_calls=2,  # Limited to prevent memory issues
+        deterministic=False
+    )
+
+    # Shuffle patches across chunks
+    dataset = dataset.shuffle(1000, seed=42)
+
+    # Batch and prefetch
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = dataset.prefetch(2)
+
+    return dataset
+
+
+def create_val_dataset(
+    chunk_files: List[str],
+    labels: List[int],
+    batch_size: int = 32,
+    max_patches_per_chunk: int = None
+) -> tf.data.Dataset:
+    """
+    Create a validation dataset using generator for memory safety.
+
+    Uses from_generator to avoid tensor materialization, preventing RAM crashes
+    when loading large validation sets without patch limits.
+
+    Args:
+        chunk_files: List of chunk file paths
+        labels: List of labels for each chunk
+        batch_size: Batch size
+        max_patches_per_chunk: Memory control (can be None for full validation)
 
     Returns:
         tf.data.Dataset yielding (batch_x, batch_y)
@@ -198,7 +324,7 @@ def create_dataset(
         return create_chunk_generator(
             chunk_files=chunk_files,
             labels=labels,
-            shuffle=shuffle,
+            shuffle=False,  # Deterministic validation
             max_patches_per_chunk=max_patches_per_chunk,
             seed=42
         )
@@ -213,14 +339,13 @@ def create_dataset(
     )
 
     # Batch and prefetch
-    dataset = dataset.batch(batch_size, drop_remainder=shuffle)
+    dataset = dataset.batch(batch_size, drop_remainder=False)
     dataset = dataset.prefetch(2)
 
-    # Force determinism for validation
-    if not shuffle:
-        opts = tf.data.Options()
-        opts.deterministic = True
-        dataset = dataset.with_options(opts)
+    # Force determinism
+    opts = tf.data.Options()
+    opts.deterministic = True
+    dataset = dataset.with_options(opts)
 
     return dataset
 
@@ -314,22 +439,21 @@ def setup_training_pipeline(
     
     print(f"Train: {len(train_files)} chunks, Val: {len(val_files)} chunks")
     
-    # Create datasets
-    train_dataset = create_dataset(
+    # Create datasets using hybrid approach:
+    # - Training: interleave for performance + diversity
+    # - Validation: generator for memory safety
+    train_dataset = create_train_dataset(
         train_files, train_labels,
         batch_size=config.batch_size,
-        shuffle=True,
         max_patches_per_chunk=config.max_patches_per_chunk,
         cycle_length=config.cycle_length
     )
     train_dataset = train_dataset.repeat()
-    
-    val_dataset = create_dataset(
+
+    val_dataset = create_val_dataset(
         val_files, val_labels,
         batch_size=config.batch_size,
-        shuffle=False,  # Deterministic validation
-        max_patches_per_chunk= None,
-        cycle_length=min(2, len(val_files))  # Reduced from 8 to prevent RAM spikes
+        max_patches_per_chunk=None  # Load all validation patches
     )
     
     # Estimate steps
