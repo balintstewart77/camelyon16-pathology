@@ -103,78 +103,69 @@ def verify_no_slide_leakage(
     print(f"✓ No slide leakage ({len(train_slides)} train, {len(val_slides)} val slides)")
 
 
-def create_chunk_reader(
+def create_chunk_generator(
+    chunk_files: List[str],
+    labels: List[int],
     shuffle: bool = True,
-    max_patches: int = None,
+    max_patches_per_chunk: int = None,
     seed: int = 42
 ):
     """
-    Create a function that reads a single chunk file.
-    
-    Returns a callable for use with tf.data.Dataset.interleave()
+    Create a generator that yields individual patches from chunk files.
+
+    This approach avoids materializing entire chunks as tensors, which
+    prevents the memory issues caused by from_tensor_slices.
     """
     rng = np.random.default_rng(seed)
-    
-    def read_chunk(file_path, label, max_patches_tensor):
-        """Python function to read chunk (called via tf.py_function)."""
-        path = file_path.numpy().decode('utf-8')
-        external_label = label.numpy()
-        max_p = max_patches_tensor.numpy()
-        
-        try:
-            with np.load(path, mmap_mode="r") as data:
-                X = data['X'].astype(np.float32)
-                n = len(X)
-                
-                # Ensure [0, 1] range
-                if X.max() > 1.5:
-                    X = X / 255.0
-                X = np.clip(X, 0.0, 1.0)
-                
-                # Subsample if needed
-                if max_p > 0 and n > max_p:
-                    if shuffle:
-                        idx = rng.choice(n, max_p, replace=False)
-                    else:
-                        idx = np.arange(max_p)
-                    X = X[idx]
-                    n = max_p
-                
-                # Use external label (for binary remapping)
-                y = np.full(n, external_label, dtype=np.int32)
-                
-                return X, y
-                
-        except Exception as e:
-            print(f"Error loading {path}: {e}")
-            return np.empty((0, 224, 224, 3), np.float32), np.empty(0, np.int32)
-        finally:
-            # Help garbage collection release chunk memory
-            gc.collect()
-    
-    def tf_read_chunk(file_path, label, max_patches_per_chunk):
-        max_p = tf.constant(
-            -1 if max_patches_per_chunk is None else int(max_patches_per_chunk),
-            dtype=tf.int32
-        )
-        
-        patches, labels = tf.py_function(
-            read_chunk,
-            [file_path, label, max_p],
-            [tf.float32, tf.int32]
-        )
-        
-        patches.set_shape([None, 224, 224, 3])
-        labels.set_shape([None])
-        
-        ds = tf.data.Dataset.from_tensor_slices((patches, labels))
-        
+    file_indices = list(range(len(chunk_files)))
+
+    while True:
+        # Shuffle file order each epoch
         if shuffle:
-            ds = ds.shuffle(buffer_size=1024, seed=seed)
-        
-        return ds
-    
-    return tf_read_chunk
+            rng.shuffle(file_indices)
+
+        for file_idx in file_indices:
+            path = chunk_files[file_idx]
+            external_label = labels[file_idx]
+
+            try:
+                with np.load(path, mmap_mode="r") as data:
+                    X_mmap = data['X']
+                    n = len(X_mmap)
+
+                    # Determine indices BEFORE loading to preserve mmap benefits
+                    max_p = max_patches_per_chunk or -1
+                    if max_p > 0 and n > max_p:
+                        if shuffle:
+                            idx = rng.choice(n, max_p, replace=False)
+                        else:
+                            idx = np.arange(max_p)
+                    else:
+                        idx = np.arange(n)
+
+                    if shuffle:
+                        rng.shuffle(idx)
+
+                    # Check normalization on first sample
+                    needs_normalize = X_mmap[idx[0]].max() > 1.5
+
+                    # Yield patches one at a time - avoids tensor materialization
+                    for i in idx:
+                        patch = X_mmap[i].astype(np.float32)
+                        if needs_normalize:
+                            patch = patch / 255.0
+                        patch = np.clip(patch, 0.0, 1.0)
+                        yield patch, external_label
+
+            except Exception as e:
+                print(f"Error loading {path}: {e}")
+                continue
+            finally:
+                gc.collect()
+
+        # For non-training (validation), only go through data once
+        if not shuffle:
+            break
 
 
 def create_dataset(
@@ -183,57 +174,54 @@ def create_dataset(
     batch_size: int = 32,
     shuffle: bool = True,
     max_patches_per_chunk: int = None,
-    cycle_length: int = 4
+    cycle_length: int = 4  # Kept for API compatibility, not used in generator approach
 ) -> tf.data.Dataset:
     """
-    Create a tf.data.Dataset from chunk files.
-    
+    Create a tf.data.Dataset from chunk files using a generator.
+
+    This approach uses from_generator instead of interleave + from_tensor_slices,
+    which prevents memory issues from tensor materialization.
+
     Args:
         chunk_files: List of chunk file paths
         labels: List of labels for each chunk
         batch_size: Batch size
         shuffle: Whether to shuffle (True for train, False for val)
         max_patches_per_chunk: Memory control
-        cycle_length: Chunks to read in parallel
-        
+        cycle_length: Unused, kept for API compatibility
+
     Returns:
         tf.data.Dataset yielding (batch_x, batch_y)
     """
-    # Create file dataset
-    file_ds = tf.data.Dataset.from_tensor_slices((chunk_files, labels))
-    
-    if shuffle:
-        file_ds = file_ds.shuffle(len(chunk_files), seed=42, reshuffle_each_iteration=True)
-    
-    # Create chunk reader
-    chunk_reader = create_chunk_reader(shuffle=shuffle, max_patches=max_patches_per_chunk)
-    
-    # Interleave chunks
-    # NOTE: Using fixed num_parallel_calls=2 instead of AUTOTUNE to prevent memory leak.
-    # AUTOTUNE spawns many parallel workers, each holding chunk data in memory.
-    # With py_function + from_tensor_slices, GC doesn't keep up -> linear RAM growth.
-    dataset = file_ds.interleave(
-        lambda fp, lbl: chunk_reader(fp, lbl, max_patches_per_chunk),
-        cycle_length=cycle_length,
-        block_length=4,
-        num_parallel_calls=2,  # MEMORY FIX: was tf.data.AUTOTUNE
-        deterministic=not shuffle
+    # Create generator function (closure to capture parameters)
+    def gen():
+        return create_chunk_generator(
+            chunk_files=chunk_files,
+            labels=labels,
+            shuffle=shuffle,
+            max_patches_per_chunk=max_patches_per_chunk,
+            seed=42
+        )
+
+    # Create dataset from generator - avoids tensor materialization
+    dataset = tf.data.Dataset.from_generator(
+        gen,
+        output_signature=(
+            tf.TensorSpec(shape=(224, 224, 3), dtype=tf.float32),
+            tf.TensorSpec(shape=(), dtype=tf.int32)
+        )
     )
-    
-    # Shuffle patches if training
-    if shuffle:
-        dataset = dataset.shuffle(1000, seed=42)
-    
+
     # Batch and prefetch
     dataset = dataset.batch(batch_size, drop_remainder=shuffle)
-    dataset = dataset.prefetch(2)  # MEMORY FIX: was tf.data.AUTOTUNE
-    
+    dataset = dataset.prefetch(2)
+
     # Force determinism for validation
     if not shuffle:
         opts = tf.data.Options()
         opts.deterministic = True
         dataset = dataset.with_options(opts)
-    
+
     return dataset
 
 
@@ -340,8 +328,8 @@ def setup_training_pipeline(
         val_files, val_labels,
         batch_size=config.batch_size,
         shuffle=False,  # Deterministic validation
-        max_patches_per_chunk= None,  
-        cycle_length=min(8, len(val_files))
+        max_patches_per_chunk= None,
+        cycle_length=min(2, len(val_files))  # Reduced from 8 to prevent RAM spikes
     )
     
     # Estimate steps

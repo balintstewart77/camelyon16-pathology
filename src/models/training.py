@@ -78,20 +78,22 @@ def evaluate_model(
     val_dataset: tf.data.Dataset,
     experiment_name: str,
     history: keras.callbacks.History = None,
-    threshold: float = 0.5
+    threshold: float = 0.5,
+    keep_predictions: bool = False
 ) -> Dict:
     """
     Comprehensive model evaluation with visualizations.
-    
+
     Args:
         model: Trained Keras model
         val_dataset: Validation dataset
         experiment_name: Name for plots
         history: Training history (optional)
         threshold: Classification threshold
-        
+        keep_predictions: If False, discard y_true/y_prob/y_pred arrays to save RAM
+
     Returns:
-        Dictionary with metrics and predictions
+        Dictionary with metrics (and predictions if keep_predictions=True)
     """
     print(f"\n{'='*50}")
     print(f"Evaluating: {experiment_name}")
@@ -172,16 +174,21 @@ def evaluate_model(
     
     plt.tight_layout()
     plt.show()
-    
-    return {
+
+    result = {
         'accuracy': accuracy,
         'auc': auc,
         'threshold': threshold,
-        'y_true': y_true,
-        'y_prob': y_prob,
-        'y_pred': y_pred,
         'confusion_matrix': cm
     }
+
+    # Only keep large arrays if explicitly requested (saves RAM)
+    if keep_predictions:
+        result['y_true'] = y_true
+        result['y_prob'] = y_prob
+        result['y_pred'] = y_pred
+
+    return result
 
 
 def run_binary_experiment(
@@ -190,7 +197,8 @@ def run_binary_experiment(
     model_name: str = 'simple',
     config: TrainingConfig = None,
     epochs: int = 20,
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-4,
+    keep_predictions: bool = False
 ) -> Dict:
     """
     Run a binary classification experiment.
@@ -209,7 +217,8 @@ def run_binary_experiment(
         config: Training configuration
         epochs: Maximum training epochs
         learning_rate: Initial learning rate
-        
+        keep_predictions: If False, discard prediction arrays to save RAM
+
     Returns:
         Dictionary with model, history, and results
     """
@@ -281,7 +290,7 @@ def run_binary_experiment(
         )
         
         # Evaluate
-        results = evaluate_model(model, val_ds, exp['name'], history)
+        results = evaluate_model(model, val_ds, exp['name'], history, keep_predictions=keep_predictions)
         
         return {
             'model': model,
