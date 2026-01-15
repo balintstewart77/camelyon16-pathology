@@ -18,12 +18,13 @@ __pycache__/
 .vscode/
 .idea/
 
-# Data files (if you have large datasets)
+# Data files
 *.h5
 *.hdf5
 *.tfrecords
-data/
 *.zip
+datasets/
+raw_data/
 
 # Model files (if large)
 *.pth
