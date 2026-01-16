@@ -340,8 +340,9 @@ def create_val_dataset(
 
     # Shuffle to mix patches across chunks - prevents class-skewed batches
     # which cause unstable batch norm statistics and jumpy validation metrics.
+    # Buffer of 2000 ensures mixing across ~5 chunks (at 400 patches/chunk).
     # reshuffle_each_iteration=False keeps same order each epoch for consistency.
-    dataset = dataset.shuffle(buffer_size=500, seed=42, reshuffle_each_iteration=False)
+    dataset = dataset.shuffle(buffer_size=2000, seed=42, reshuffle_each_iteration=False)
 
     # Batch and prefetch
     dataset = dataset.batch(batch_size, drop_remainder=False)
