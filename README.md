@@ -1,6 +1,6 @@
 # CAMELYON16 Tumor Detection Pipeline
 
-A clean, educational implementation of automated tumor detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset.
+A deep-learning based implementation of automated tumour detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset. 
 
 ## Project Overview
 
@@ -8,9 +8,9 @@ This project demonstrates an end-to-end pipeline for:
 1. **Patch Extraction** - Extracting 224×224 patches from gigapixel WSIs
 2. **4-Class Classification** - Distinguishing between:
    - Class 0: Normal tissue from normal slides
-   - Class 1: Normal tissue from tumor slides  
-   - Class 2: Boundary tissue (partial tumor overlap)
-   - Class 3: Pure tumor tissue
+   - Class 1: Normal tissue from tumour slides  
+   - Class 2: Boundary tissue (partial tumour overlap)
+   - Class 3: Pure tumour tissue
 3. **Binary Model Training** - Training CNN models for various classification tasks
 
 ## Key Concepts
@@ -20,6 +20,15 @@ WSIs are massive (up to 100,000 × 100,000 pixels). We can't load them into memo
 1. Create a low-resolution tissue mask to identify valid regions
 2. Sample patches from these regions
 3. Process patches in manageable chunks
+4. Use a four-class patch extraction methodology that enables us to experiment with different kinds of tumour detection problems
+
+## Example Patch Grids
+
+### Normal slide
+![Grid view of sampled normal patches from a CAMELYON16 slide](assets/images/normal_slide_grid_view.png)
+
+### Tumour slide (3-class)
+![Grid view of tumour patch sampling across three classes](assets/images/tumor_slide_3_class_grid_view.png)
 
 ### Slide-Aware Chunking
 To prevent data leakage between train/validation sets, we ensure:
