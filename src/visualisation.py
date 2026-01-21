@@ -113,7 +113,7 @@ def visualise_patches_grid(
     thumbnail_size: Tuple[int, int] = (2048, 2048),
     linewidth: float = 1.0,
     figsize: Tuple[int, int] = (12, 10),
-    return_fig: bool = False
+    save_as_png: Optional[str] = None
 ) -> None:
     """
     Visualise patches as actual rectangles showing patch boundaries.
@@ -134,6 +134,7 @@ def visualise_patches_grid(
         thumbnail_size: Max size for zoomed thumbnail
         linewidth: Line width for rectangles
         figsize: Figure size
+        save_as_png: If provided, save figure to this filename instead of displaying
     """
     if class_colours is None:
         class_colours = {0: 'blue', 1: 'green', 2: 'orange', 3: 'red'}
@@ -222,11 +223,17 @@ def visualise_patches_grid(
     ax.set_title(f"{title}\nRegion: {zoom_region}", fontsize=14, fontweight='bold')
     ax.axis('off')
     plt.tight_layout()
-    if return_fig:
-        return fig
+
+    if save_as_png:
+        # Set light grey background for clean export
+        bg = "#f5f5f5"
+        fig.patch.set_facecolor(bg)
+        ax.set_facecolor(bg)
+        fig.savefig(save_as_png, dpi=300, bbox_inches="tight", facecolor=bg)
+        plt.close(fig)
+        print(f"Saved: {save_as_png}")
     else:
         plt.show()
-
 
 
 def visualise_patches_grid_topleft(
