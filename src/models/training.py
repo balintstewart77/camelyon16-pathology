@@ -52,14 +52,14 @@ def create_callbacks(
     return [
         keras.callbacks.EarlyStopping(
             monitor='val_loss',
-            patience=5,
+            patience=3,
             restore_best_weights=True,
             verbose=1
         ),
         keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss',
             factor=0.5,
-            patience=3,
+            patience=2,
             min_lr=1e-7,
             verbose=1
         ),
