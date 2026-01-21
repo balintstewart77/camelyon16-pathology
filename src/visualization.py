@@ -278,7 +278,8 @@ def visualize_patches_grid(
     title: str = "Patch Grid",
     thumbnail_size: Tuple[int, int] = (2048, 2048),
     linewidth: float = 1.0,
-    figsize: Tuple[int, int] = (12, 10)
+    figsize: Tuple[int, int] = (12, 10),
+    return_fig: bool = False
 ) -> None:
     """
     Visualize patches as actual rectangles showing patch boundaries.
@@ -388,7 +389,11 @@ def visualize_patches_grid(
     ax.set_title(f"{title}\nRegion: {zoom_region}", fontsize=14, fontweight='bold')
     ax.axis('off')
     plt.tight_layout()
-    plt.show()
+    if return_fig:
+        return fig
+    else:
+        plt.show()
+
 
 
 def visualize_patches_grid_topleft(
