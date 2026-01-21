@@ -99,6 +99,102 @@ def find_dense_tissue_region(
 
 
 # ============================================================================
+# TISSUE OUTLINE VISUALISATION
+# ============================================================================
+
+def visualise_tissue_outline(
+    slide: openslide.OpenSlide,
+    tissue_mask: np.ndarray,
+    tumor_polygons: Optional[List] = None,
+    thumbnail_size: Tuple[int, int] = (512, 512),
+    outline_colour: str = 'lime',
+    outline_width: float = 1.5,
+    tumor_colour: Tuple[float, float, float] = (1.0, 0.0, 0.0),
+    tumor_alpha: float = 0.5,
+    title: Optional[str] = None,
+    figsize: Tuple[int, int] = (10, 10),
+    save_as_png: Optional[str] = None
+) -> None:
+    """
+    Visualise tissue regions as an outline contour on the slide thumbnail.
+
+    Optionally overlay tumor regions as semi-transparent filled polygons.
+    Useful for blog figures showing tissue detection and tumor annotations.
+
+    Args:
+        slide: OpenSlide object
+        tissue_mask: Binary tissue mask (from get_tissue_mask or compute_foreground_mask)
+        tumor_polygons: Optional list of Shapely Polygon objects for tumor regions
+        thumbnail_size: Size of thumbnail to display
+        outline_colour: Colour for tissue outline (default: lime green)
+        outline_width: Line width for tissue outline
+        tumor_colour: RGB tuple for tumor fill (values 0-1)
+        tumor_alpha: Transparency of tumor fill (0-1)
+        title: Optional plot title
+        figsize: Figure size
+        save_as_png: If provided, save figure to this filename instead of displaying
+    """
+    from PIL import Image
+
+    # Get thumbnail
+    thumbnail = slide.get_thumbnail(thumbnail_size)
+    thumb_w, thumb_h = thumbnail.size
+
+    # Scale factors from level-0 to thumbnail
+    slide_w, slide_h = slide.dimensions
+    scale_x = thumb_w / slide_w
+    scale_y = thumb_h / slide_h
+
+    # Resize mask to thumbnail size
+    mask = np.array(tissue_mask).astype(bool)
+    if mask.shape[::-1] != (thumb_w, thumb_h):
+        mask_img = Image.fromarray(mask.astype(np.uint8) * 255)
+        mask_resized = mask_img.resize((thumb_w, thumb_h), resample=Image.NEAREST)
+        mask_resized = np.array(mask_resized) > 127
+    else:
+        mask_resized = mask
+
+    # Plot
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.imshow(thumbnail)
+
+    # Draw tissue outline as contour
+    ax.contour(mask_resized.astype(float), levels=[0.5],
+               colors=outline_colour, linewidths=outline_width)
+
+    # Draw tumor regions if provided
+    if tumor_polygons:
+        for polygon in tumor_polygons:
+            try:
+                coords = list(polygon.exterior.coords)
+                scaled_coords = [(x * scale_x, y * scale_y) for x, y in coords]
+                patch = mpatches.Polygon(
+                    scaled_coords,
+                    closed=True,
+                    facecolor=(*tumor_colour, tumor_alpha),
+                    edgecolor='none'
+                )
+                ax.add_patch(patch)
+            except Exception:
+                continue
+
+    if title:
+        ax.set_title(title, fontsize=14, fontweight='bold')
+    ax.axis('off')
+    plt.tight_layout()
+
+    if save_as_png:
+        bg = "#f5f5f5"
+        fig.patch.set_facecolor(bg)
+        ax.set_facecolor(bg)
+        fig.savefig(save_as_png, dpi=300, bbox_inches="tight", facecolor=bg)
+        plt.close(fig)
+        print(f"Saved: {save_as_png}")
+    else:
+        plt.show()
+
+
+# ============================================================================
 # GRID RECTANGLE VISUALISATION (actual patch boundaries)
 # ============================================================================
 
