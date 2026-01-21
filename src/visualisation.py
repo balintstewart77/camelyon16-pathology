@@ -1,7 +1,7 @@
 """
-Visualization utilities for WSI patch extraction.
+Visualisation utilities for WSI patch extraction.
 
-Provides grid rectangle visualization showing actual patch boundaries as colored
+Provides grid rectangle visualisation showing actual patch boundaries as coloured
 squares. Can be used at full-slide thumbnail scale or zoomed into regions.
 """
 
@@ -23,21 +23,21 @@ def find_zoom_region_by_coords(
     """
     Find a zoom region centered on the mean of coordinates.
     Good for tumor regions where patches cluster around annotations.
-    
+
     Args:
         coords: List of (x, y) patch coordinates
         region_size: Size of square zoom region in pixels
-        
+
     Returns:
         (x_min, y_min, x_max, y_max) bounding box
     """
     if not coords:
         return None
-    
+
     center_x = int(np.mean([x for x, y in coords]))
     center_y = int(np.mean([y for x, y in coords]))
     half_size = region_size // 2
-    
+
     return (center_x - half_size, center_y - half_size,
             center_x + half_size, center_y + half_size)
 
@@ -49,65 +49,65 @@ def find_dense_tissue_region(
     """
     Find zoom region with highest patch density.
     Better for normal slides where tissue is spread out.
-    
+
     Args:
         coords: List of (x, y) patch coordinates
         region_size: Size of square zoom region
-        
+
     Returns:
         (x_min, y_min, x_max, y_max) bounding box
     """
     if not coords:
         return None
-    
+
     all_x = [x for x, y in coords]
     all_y = [y for x, y in coords]
-    
+
     min_x, max_x = min(all_x), max(all_x)
     min_y, max_y = min(all_y), max(all_y)
-    
+
     half_size = region_size // 2
     best_region = None
     max_patches_in_region = 0
-    
+
     # Sample candidate centers
     x_candidates = [min_x + (max_x - min_x) * f for f in [0.3, 0.5, 0.7]]
     y_candidates = [min_y + (max_y - min_y) * f for f in [0.3, 0.5, 0.7]]
-    
+
     for center_x in x_candidates:
         for center_y in y_candidates:
             region_patches = [
                 (x, y) for x, y in coords
                 if abs(x - center_x) <= half_size and abs(y - center_y) <= half_size
             ]
-            
+
             if len(region_patches) > max_patches_in_region:
                 max_patches_in_region = len(region_patches)
                 best_region = (
                     int(center_x - half_size), int(center_y - half_size),
                     int(center_x + half_size), int(center_y + half_size)
                 )
-    
+
     # Fallback to center
     if best_region is None:
         center_x = int(np.mean(all_x))
         center_y = int(np.mean(all_y))
         best_region = (center_x - half_size, center_y - half_size,
                       center_x + half_size, center_y + half_size)
-    
+
     return best_region
 
 
 # ============================================================================
-# GRID RECTANGLE VISUALIZATION (actual patch boundaries)
+# GRID RECTANGLE VISUALISATION (actual patch boundaries)
 # ============================================================================
 
-def visualize_patches_grid(
+def visualise_patches_grid(
     slide: openslide.OpenSlide,
     coords_by_class: Dict[int, List[Tuple[int, int]]],
     zoom_region: Tuple[int, int, int, int],
     patch_size: int = 224,
-    class_colors: Dict[int, str] = None,
+    class_colours: Dict[int, str] = None,
     class_labels: Dict[int, str] = None,
     title: str = "Patch Grid",
     thumbnail_size: Tuple[int, int] = (2048, 2048),
@@ -116,28 +116,27 @@ def visualize_patches_grid(
     return_fig: bool = False
 ) -> None:
     """
-    Visualize patches as actual rectangles showing patch boundaries.
-    
+    Visualise patches as actual rectangles showing patch boundaries.
+
     This is the "grid" view that shows exactly what patches cover.
-    Better for understanding patch extraction but slower than scatter.
-    
+
     Note: Coordinates are assumed to be patch CENTERS. The rectangles
     are drawn from (center - patch_size/2) to show actual coverage.
-    
+
     Args:
         slide: OpenSlide object
         coords_by_class: Dict mapping class ID to list of (x, y) CENTER coordinates
         zoom_region: (x_min, y_min, x_max, y_max) region to zoom into
         patch_size: Size of each patch (default 224)
-        class_colors: Dict mapping class ID to color
+        class_colours: Dict mapping class ID to colour
         class_labels: Dict mapping class ID to label
         title: Plot title
         thumbnail_size: Max size for zoomed thumbnail
         linewidth: Line width for rectangles
         figsize: Figure size
     """
-    if class_colors is None:
-        class_colors = {0: 'blue', 1: 'green', 2: 'orange', 3: 'red'}
+    if class_colours is None:
+        class_colours = {0: 'blue', 1: 'green', 2: 'orange', 3: 'red'}
     if class_labels is None:
         class_labels = {
             0: 'Normal (from normal)',
@@ -145,43 +144,43 @@ def visualize_patches_grid(
             2: 'Boundary',
             3: 'Pure Tumor'
         }
-    
+
     x_min, y_min, x_max, y_max = zoom_region
     region_w = x_max - x_min
     region_h = y_max - y_min
-    
+
     # Choose appropriate level
     level = 0
     while (level < slide.level_count - 1 and
            slide.level_dimensions[level][0] / slide.level_dimensions[0][0] * region_w > thumbnail_size[0]):
         level += 1
-    
+
     downsample = slide.level_downsamples[level]
     thumb_w = min(int(region_w / downsample), thumbnail_size[0])
     thumb_h = min(int(region_h / downsample), thumbnail_size[1])
-    
+
     thumbnail = slide.read_region((x_min, y_min), level, (thumb_w, thumb_h)).convert("RGB")
-    
+
     # Scaling
     scale_x = thumb_w / region_w
     scale_y = thumb_h / region_h
     rect_w = patch_size * scale_x
     rect_h = patch_size * scale_y
     half_patch = patch_size // 2
-    
+
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
     ax.imshow(thumbnail)
-    
+
     legend_handles = []
-    
+
     for class_id, coords in sorted(coords_by_class.items()):
         if not coords:
             continue
-        
-        color = class_colors.get(class_id, 'gray')
+
+        colour = class_colours.get(class_id, 'gray')
         label = class_labels.get(class_id, f'Class {class_id}')
-        
+
         # Filter coords that have patches overlapping the zoom region
         # Convert center to top-left for filtering
         filtered = []
@@ -193,33 +192,33 @@ def visualize_patches_grid(
             if (tl_x + patch_size > x_min and tl_x < x_max and
                 tl_y + patch_size > y_min and tl_y < y_max):
                 filtered.append((tl_x, tl_y))
-        
+
         if not filtered:
             continue
-        
+
         # Draw rectangles
         for tl_x, tl_y in filtered:
             # Scale top-left to thumbnail coordinates
             tx = (tl_x - x_min) * scale_x
             ty = (tl_y - y_min) * scale_y
-            
+
             rect = mpatches.Rectangle(
                 (tx, ty), rect_w, rect_h,
                 linewidth=linewidth,
-                edgecolor=color,
+                edgecolor=colour,
                 facecolor='none'
             )
             ax.add_patch(rect)
-        
+
         # Add to legend
         legend_handles.append(
-            mpatches.Patch(edgecolor=color, facecolor='none', 
+            mpatches.Patch(edgecolor=colour, facecolor='none',
                           label=f'{label} ({len(filtered)})')
         )
-    
+
     if legend_handles:
         ax.legend(handles=legend_handles, loc='upper right', framealpha=0.9)
-    
+
     ax.set_title(f"{title}\nRegion: {zoom_region}", fontsize=14, fontweight='bold')
     ax.axis('off')
     plt.tight_layout()
@@ -230,12 +229,12 @@ def visualize_patches_grid(
 
 
 
-def visualize_patches_grid_topleft(
+def visualise_patches_grid_topleft(
     slide: openslide.OpenSlide,
     coords_by_class: Dict[int, List[Tuple[int, int]]],
     zoom_region: Tuple[int, int, int, int],
     patch_size: int = 224,
-    class_colors: Dict[int, str] = None,
+    class_colours: Dict[int, str] = None,
     class_labels: Dict[int, str] = None,
     title: str = "Patch Grid",
     thumbnail_size: Tuple[int, int] = (2048, 2048),
@@ -243,20 +242,20 @@ def visualize_patches_grid_topleft(
     figsize: Tuple[int, int] = (12, 10)
 ) -> None:
     """
-    Visualize patches as rectangles when coordinates are TOP-LEFT (not centers).
-    
+    Visualise patches as rectangles when coordinates are TOP-LEFT (not centers).
+
     Use this version if your coordinates represent the top-left corner of patches
     rather than the center.
-    
+
     Args:
         slide: OpenSlide object
         coords_by_class: Dict mapping class ID to list of (x, y) TOP-LEFT coordinates
         zoom_region: (x_min, y_min, x_max, y_max) region to zoom into
         patch_size: Size of each patch (default 224)
-        ... (other args same as visualize_patches_grid)
+        ... (other args same as visualise_patches_grid)
     """
-    if class_colors is None:
-        class_colors = {0: 'blue', 1: 'green', 2: 'orange', 3: 'red'}
+    if class_colours is None:
+        class_colours = {0: 'blue', 1: 'green', 2: 'orange', 3: 'red'}
     if class_labels is None:
         class_labels = {
             0: 'Normal (from normal)',
@@ -264,75 +263,73 @@ def visualize_patches_grid_topleft(
             2: 'Boundary',
             3: 'Pure Tumor'
         }
-    
+
     x_min, y_min, x_max, y_max = zoom_region
     region_w = x_max - x_min
     region_h = y_max - y_min
-    
+
     # Choose appropriate level
     level = 0
     while (level < slide.level_count - 1 and
            slide.level_dimensions[level][0] / slide.level_dimensions[0][0] * region_w > thumbnail_size[0]):
         level += 1
-    
+
     downsample = slide.level_downsamples[level]
     thumb_w = min(int(region_w / downsample), thumbnail_size[0])
     thumb_h = min(int(region_h / downsample), thumbnail_size[1])
-    
+
     thumbnail = slide.read_region((x_min, y_min), level, (thumb_w, thumb_h)).convert("RGB")
-    
+
     # Scaling
     scale_x = thumb_w / region_w
     scale_y = thumb_h / region_h
     rect_w = patch_size * scale_x
     rect_h = patch_size * scale_y
-    
+
     # Plot
     fig, ax = plt.subplots(figsize=figsize)
     ax.imshow(thumbnail)
-    
+
     legend_handles = []
-    
+
     for class_id, coords in sorted(coords_by_class.items()):
         if not coords:
             continue
-        
-        color = class_colors.get(class_id, 'gray')
+
+        colour = class_colours.get(class_id, 'gray')
         label = class_labels.get(class_id, f'Class {class_id}')
-        
+
         # Filter: keep patches fully inside zoom window
         filtered = [
             (x, y) for (x, y) in coords
             if (x_min <= x <= x_max - patch_size) and (y_min <= y <= y_max - patch_size)
         ]
-        
+
         if not filtered:
             continue
-        
+
         # Draw rectangles
         for tl_x, tl_y in filtered:
             tx = (tl_x - x_min) * scale_x
             ty = (tl_y - y_min) * scale_y
-            
+
             rect = mpatches.Rectangle(
                 (tx, ty), rect_w, rect_h,
                 linewidth=linewidth,
-                edgecolor=color,
+                edgecolor=colour,
                 facecolor='none'
             )
             ax.add_patch(rect)
-        
+
         legend_handles.append(
-            mpatches.Patch(edgecolor=color, facecolor='none',
+            mpatches.Patch(edgecolor=colour, facecolor='none',
                           label=f'{label} ({len(filtered)})')
         )
-    
+
     if legend_handles:
         ax.legend(handles=legend_handles, loc='upper right', framealpha=0.9)
-    
+
     ax.set_title(f"{title}\nRegion: {zoom_region}", fontsize=14, fontweight='bold')
     ax.axis('off')
     plt.tight_layout()
     plt.show()
-
-

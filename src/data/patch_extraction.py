@@ -202,50 +202,50 @@ def extract_patch(
 def preprocess_patch(
     patch: Image.Image,
     augment: bool = False,
-    normalize: bool = True
+    normalise: bool = True
 ) -> np.ndarray:
     """
     Preprocess a patch for model input.
-    
+
     Optional augmentation:
     - Random horizontal/vertical flips
     - Random 90-degree rotations
     - Brightness jitter
-    
+
     Args:
         patch: PIL Image
         augment: Whether to apply random augmentation
-        normalize: Whether to scale to [0, 1]
-        
+        normalise: Whether to scale to [0, 1]
+
     Returns:
         NumPy array of shape (224, 224, 3), dtype float32
     """
     img = patch
-    
+
     if augment:
         # Random horizontal flip
         if random.random() < 0.5:
             img = img.transpose(Image.FLIP_LEFT_RIGHT)
-        
+
         # Random vertical flip
         if random.random() < 0.5:
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
-        
+
         # Random 90-degree rotation
         angle = random.choice([0, 90, 180, 270])
         if angle > 0:
             img = img.rotate(angle)
-        
+
         # Random brightness (0.8 to 1.2)
         factor = random.uniform(0.8, 1.2)
         img = ImageEnhance.Brightness(img).enhance(factor)
-    
+
     # Convert to array
     arr = np.array(img, dtype=np.float32)
-    
-    if normalize:
+
+    if normalise:
         arr = arr / 255.0
-    
+
     return arr
 
 

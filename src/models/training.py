@@ -82,7 +82,7 @@ def evaluate_model(
     keep_predictions: bool = False
 ) -> Dict:
     """
-    Comprehensive model evaluation with visualizations.
+    Comprehensive model evaluation with visualisations.
 
     Args:
         model: Trained Keras model

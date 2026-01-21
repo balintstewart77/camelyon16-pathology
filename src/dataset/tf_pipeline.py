@@ -226,13 +226,13 @@ def create_chunk_generator(
                     if shuffle:
                         rng.shuffle(idx)
 
-                    # Check normalization on first sample
-                    needs_normalize = X_mmap[idx[0]].max() > 1.5
+                    # Check normalisation on first sample
+                    needs_normalise = X_mmap[idx[0]].max() > 1.5
 
-                    # Yield patches one at a time - avoids tensor materialization
+                    # Yield patches one at a time - avoids tensor materialisation
                     for i in idx:
                         patch = X_mmap[i].astype(np.float32)
-                        if needs_normalize:
+                        if needs_normalise:
                             patch = patch / 255.0
                         patch = np.clip(patch, 0.0, 1.0)
                         yield patch, external_label
