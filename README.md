@@ -78,33 +78,33 @@ Tumor and boundary regions are rare compared to normal tissue.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      S3 Storage Layer                        │
+│                      S3 Storage Layer                       │
 │  Training: 160 normal WSIs, 111 tumor WSIs + annotations    │
 │  Test: 80 normal WSIs, 49 tumor WSIs + annotations          │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│               Slide Processing (Per WSI)                     │
+│               Slide Processing (Per WSI)                    │
 │  1. Download to /tmp  →  2. Tissue Mask  →  3. Grid Sample  │
-│                          (threshold +      (adaptive stride) │
-│                           filtering)                         │
+│                          (threshold +      (adaptive stride)│
+│                           filtering)                        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              4-Class Patch Extraction                        │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
-│  │ Class 0 │ │ Class 1 │ │ Class 2 │ │ Class 3 │           │
-│  │ Normal  │ │ Normal  │ │Boundary │ │  Pure   │           │
-│  │from Norm│ │from Tum │ │ (1-50%) │ │ Tumor   │           │
-│  │stride224│ │stride224│ │stride 56│ │stride112│           │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘           │
+│              4-Class Patch Extraction                       │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐            │
+│  │ Class 0 │ │ Class 1 │ │ Class 2 │ │ Class 3 │            │
+│  │ Normal  │ │ Normal  │ │Boundary │ │  Pure   │            │
+│  │from Norm│ │from Tum │ │ (1-50%) │ │ Tumor   │            │
+│  │stride224│ │stride224│ │stride 56│ │stride112│            │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘            │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Slide-Aware Chunking                            │
+│              Slide-Aware Chunking                           │
 │  • No slide split across chunks (prevents data leakage)     │
 │  • ~1000 patches per .npz file                              │
 │  • Metadata tracking: slide IDs, patch counts               │
@@ -112,7 +112,7 @@ Tumor and boundary regions are rare compared to normal tissue.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│           TensorFlow Training Pipeline                       │
+│           TensorFlow Training Pipeline                      │
 │  • Parallel chunk loading (tf.data.interleave)              │
 │  • Balanced sampling (50:50 class ratio)                    │
 │  • Augmentation: flips, rotations, brightness               │
@@ -138,12 +138,6 @@ This is deliberately stringent—some tissue is occasionally lost, but artifact 
 ![Grid view of tumor patch sampling across three classes](assets/images/tumor_slide_3_class_grid_view.png)
 
 Green = normal (Class 1), Orange = boundary (Class 2), Red = pure tumor (Class 3)
-
-## Stain Normalisation
-
-WSIs from different hospitals have variable H&E staining protocols, introducing domain shift. CNNs may learn stain intensity rather than morphology.
-
-**Approach**: Estimate colour statistics (mean/std per RGB channel) from a reference slide, then transform all patches to match that distribution. Applied at training time after chunk loading.
 
 ## Model Architecture
 
