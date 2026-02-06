@@ -248,6 +248,52 @@ def create_chunk_generator(
             break
 
 
+def _create_single_class_dataset(
+    chunk_files: List[str],
+    label: int,
+    max_patches_per_chunk: int = None,
+    cycle_length: int = 4
+) -> tf.data.Dataset:
+    """
+    Create a dataset from chunks of a single class.
+
+    Helper for balanced training - used by create_train_dataset().
+
+    Args:
+        chunk_files: List of chunk file paths (all same class)
+        label: Class label (0 or 1)
+        max_patches_per_chunk: Memory control
+        cycle_length: Chunks to read in parallel
+
+    Returns:
+        tf.data.Dataset yielding (patch, label) tuples
+    """
+    # Create labels array matching chunk files
+    labels = [label] * len(chunk_files)
+
+    # Create file dataset
+    file_ds = tf.data.Dataset.from_tensor_slices((chunk_files, labels))
+    file_ds = file_ds.shuffle(len(chunk_files), seed=42, reshuffle_each_iteration=True)
+
+    # Create chunk reader
+    chunk_reader = create_chunk_reader(shuffle=True)
+
+    # Interleave chunks for parallel loading
+    dataset = file_ds.interleave(
+        lambda fp, lbl: chunk_reader(fp, lbl, max_patches_per_chunk),
+        cycle_length=cycle_length,
+        block_length=4,
+        num_parallel_calls=2,
+        deterministic=False
+    )
+
+    # Shuffle within class and repeat indefinitely
+    dataset = dataset.shuffle(500, seed=42)
+    dataset = dataset.repeat()
+
+    return dataset
+
+
 def create_train_dataset(
     chunk_files: List[str],
     labels: List[int],
@@ -256,40 +302,48 @@ def create_train_dataset(
     cycle_length: int = 4
 ) -> tf.data.Dataset:
     """
-    Create a training dataset using interleave for parallel loading.
+    Create a class-balanced training dataset.
 
-    Uses interleave + from_tensor_slices for better performance and natural
-    cross-chunk diversity. Safe for training because max_patches_per_chunk
-    limits memory usage per chunk.
+    Uses sample_from_datasets() with equal weights to ensure ~50% class balance
+    in every batch. This stabilises BatchNorm statistics and gradient updates.
 
     Args:
         chunk_files: List of chunk file paths
-        labels: List of labels for each chunk
+        labels: List of labels for each chunk (0=normal, 1=tumor)
         batch_size: Batch size
         max_patches_per_chunk: Memory control (required for safe operation)
         cycle_length: Chunks to read in parallel
 
     Returns:
-        tf.data.Dataset yielding (batch_x, batch_y)
+        tf.data.Dataset yielding (batch_x, batch_y) with ~50/50 class balance
     """
-    # Create file dataset
-    file_ds = tf.data.Dataset.from_tensor_slices((chunk_files, labels))
-    file_ds = file_ds.shuffle(len(chunk_files), seed=42, reshuffle_each_iteration=True)
+    # Split chunks by class
+    normal_files = [f for f, l in zip(chunk_files, labels) if l == 0]
+    tumor_files = [f for f, l in zip(chunk_files, labels) if l == 1]
 
-    # Create chunk reader
-    chunk_reader = create_chunk_reader(shuffle=True)
+    print(f"  Training chunks: {len(normal_files)} normal, {len(tumor_files)} tumor")
 
-    # Interleave chunks for parallel loading and natural diversity
-    dataset = file_ds.interleave(
-        lambda fp, lbl: chunk_reader(fp, lbl, max_patches_per_chunk),
-        cycle_length=cycle_length,
-        block_length=4,
-        num_parallel_calls=2,  # Limited to prevent memory issues
-        deterministic=False
+    if len(normal_files) == 0 or len(tumor_files) == 0:
+        raise ValueError("Need at least one chunk per class for balanced training")
+
+    # Create separate datasets for each class
+    normal_ds = _create_single_class_dataset(
+        normal_files, label=0,
+        max_patches_per_chunk=max_patches_per_chunk,
+        cycle_length=max(1, cycle_length // 2)
+    )
+    tumor_ds = _create_single_class_dataset(
+        tumor_files, label=1,
+        max_patches_per_chunk=max_patches_per_chunk,
+        cycle_length=max(1, cycle_length // 2)
     )
 
-    # Shuffle patches across chunks
-    dataset = dataset.shuffle(1000, seed=42)
+    # Sample equally from both classes - ensures ~50/50 balance per batch
+    dataset = tf.data.Dataset.sample_from_datasets(
+        [normal_ds, tumor_ds],
+        weights=[0.5, 0.5],
+        seed=42
+    )
 
     # Batch and prefetch
     dataset = dataset.batch(batch_size, drop_remainder=True)
