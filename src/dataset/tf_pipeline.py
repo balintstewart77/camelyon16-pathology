@@ -387,86 +387,63 @@ def create_preloaded_val_dataset(
     Returns:
         (tf.data.Dataset, total_samples) - cached dataset and sample count
     """
-    print("Loading validation patches incrementally...")
+    print("Loading validation patches with pre-allocation...")
 
-    # Separate chunks by class
-    normal_chunks = [(f, l) for f, l in zip(chunk_files, labels) if l == 0]
-    tumor_chunks = [(f, l) for f, l in zip(chunk_files, labels) if l == 1]
+    # Separate chunk files by class
+    normal_files = [f for f, l in zip(chunk_files, labels) if l == 0]
+    tumor_files = [f for f, l in zip(chunk_files, labels) if l == 1]
 
-    num_normal_chunks = len(normal_chunks)
-    num_tumor_chunks = len(tumor_chunks)
+    print(f"  Found {len(normal_files)} normal chunks, {len(tumor_files)} tumor chunks")
 
-    print(f"  Found {num_normal_chunks} normal chunks, {num_tumor_chunks} tumor chunks")
-
-    if num_normal_chunks == 0 or num_tumor_chunks == 0:
+    if len(normal_files) == 0 or len(tumor_files) == 0:
         raise ValueError("Need at least one chunk per class")
 
-    # Calculate patches to load from each chunk to stay within memory budget
-    patches_per_normal_chunk = max(1, max_samples_per_class // num_normal_chunks)
-    patches_per_tumor_chunk = max(1, max_samples_per_class // num_tumor_chunks)
+    def load_class_preallocated(chunk_files_list, max_samples, class_name):
+        """Load patches with pre-allocation - no memory spike."""
+        patches_per_chunk = max(1, max_samples // len(chunk_files_list))
 
-    print(f"  Loading ~{patches_per_normal_chunk} patches/normal chunk, "
-          f"~{patches_per_tumor_chunk} patches/tumor chunk")
+        # Pre-allocate final array (key fix - avoids append+concatenate spike)
+        X = np.empty((max_samples, 224, 224, 3), dtype=np.float32)
+        offset = 0
 
-    def load_patches_from_chunks(chunks, patches_per_chunk, class_name):
-        """Load limited patches from each chunk incrementally."""
-        all_patches = []
-        total_loaded = 0
+        for i, path in enumerate(chunk_files_list):
+            if offset >= max_samples:
+                break
 
-        for i, (path, _) in enumerate(chunks):
             try:
-                with np.load(path, mmap_mode="r") as data:
+                with np.load(path, mmap_mode='r') as data:
                     X_mmap = data['X']
-                    n_available = len(X_mmap)
+                    n_to_load = min(patches_per_chunk, len(X_mmap), max_samples - offset)
 
-                    # Only load up to patches_per_chunk from this chunk
-                    n_to_load = min(patches_per_chunk, n_available)
-                    idx = np.arange(n_to_load)
+                    # Load chunk data
+                    chunk_data = X_mmap[:n_to_load].astype(np.float32)
 
-                    # .copy() releases mmap reference
-                    patches = X_mmap[idx].astype(np.float32).copy()
+                    # Normalise if needed
+                    if chunk_data.max() > 1.5:
+                        chunk_data = chunk_data / 255.0
+                    chunk_data = np.clip(chunk_data, 0.0, 1.0)
 
-                    # Ensure [0, 1] range
-                    if patches[:min(10, len(patches))].max() > 1.5:
-                        patches = patches / 255.0
-                    patches = np.clip(patches, 0.0, 1.0)
+                    # Load directly into pre-allocated array (no extra copy)
+                    X[offset:offset + n_to_load] = chunk_data
+                    offset += n_to_load
 
-                    all_patches.append(patches)
-                    total_loaded += len(patches)
-
-                    print(f"    {class_name} chunk {i + 1}/{len(chunks)}: "
-                          f"{len(patches)} patches (total: {total_loaded})")
+                    del chunk_data
 
             except Exception as e:
                 print(f"    Error loading {path}: {e}")
                 continue
-            finally:
-                gc.collect()  # Clean up after each chunk
 
-        return all_patches, total_loaded
+            gc.collect()
 
-    # Load patches incrementally from each class
-    normal_patches, n_normal = load_patches_from_chunks(
-        normal_chunks, patches_per_normal_chunk, "normal"
-    )
-    tumor_patches, n_tumor = load_patches_from_chunks(
-        tumor_chunks, patches_per_tumor_chunk, "tumor"
-    )
+            if (i + 1) % 5 == 0 or (i + 1) == len(chunk_files_list):
+                print(f"    {class_name}: chunk {i + 1}/{len(chunk_files_list)}, "
+                      f"{offset} patches loaded")
 
-    # Concatenate patches per class
-    if normal_patches:
-        all_normal = np.concatenate(normal_patches, axis=0)
-        del normal_patches
-    else:
-        all_normal = np.empty((0, 224, 224, 3), dtype=np.float32)
+        return X[:offset]  # Trim to actual size
 
-    if tumor_patches:
-        all_tumor = np.concatenate(tumor_patches, axis=0)
-        del tumor_patches
-    else:
-        all_tumor = np.empty((0, 224, 224, 3), dtype=np.float32)
-
-    gc.collect()
+    # Load with pre-allocation (memory-safe)
+    all_normal = load_class_preallocated(normal_files, max_samples_per_class, "normal")
+    all_tumor = load_class_preallocated(tumor_files, max_samples_per_class, "tumor")
 
     print(f"  Loaded: {len(all_normal)} normal, {len(all_tumor)} tumor patches")
 
