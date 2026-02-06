@@ -365,9 +365,13 @@ def create_preloaded_val_dataset(
     """
     Create a pre-loaded, cached validation dataset for stable metrics.
 
-    Loads ALL validation patches into memory, balances classes, and interleaves
-    at the sample level (N,T,N,T,...) so every batch is ~50% balanced.
-    Uses from_tensor_slices() + cache() for identical results every epoch.
+    Loads validation patches incrementally (memory-safe), balances classes,
+    and interleaves at the sample level (N,T,N,T,...) so every batch is
+    ~50% balanced. Uses from_tensor_slices() + cache() for identical results
+    every epoch.
+
+    Memory budget: ~4GB for 3000 samples per class (6000 total)
+    - 6000 × 224 × 224 × 3 × 4 bytes = ~3.4GB
 
     This solves validation instability caused by:
     - Generator re-instantiation with fresh RNG state
@@ -383,39 +387,73 @@ def create_preloaded_val_dataset(
     Returns:
         (tf.data.Dataset, total_samples) - cached dataset and sample count
     """
-    print("Loading validation patches into memory...")
+    print("Loading validation patches incrementally...")
 
-    # Collect patches by class
-    normal_patches = []
-    tumor_patches = []
+    # Separate chunks by class
+    normal_chunks = [(f, l) for f, l in zip(chunk_files, labels) if l == 0]
+    tumor_chunks = [(f, l) for f, l in zip(chunk_files, labels) if l == 1]
 
-    for path, label in zip(chunk_files, labels):
-        try:
-            with np.load(path, mmap_mode="r") as data:
-                X_mmap = data['X']
-                n = len(X_mmap)
+    num_normal_chunks = len(normal_chunks)
+    num_tumor_chunks = len(tumor_chunks)
 
-                # Load all patches from this chunk
-                X = X_mmap[:].astype(np.float32)
+    print(f"  Found {num_normal_chunks} normal chunks, {num_tumor_chunks} tumor chunks")
 
-                # Ensure [0, 1] range
-                if X[:min(10, n)].max() > 1.5:
-                    X = X / 255.0
-                X = np.clip(X, 0.0, 1.0)
+    if num_normal_chunks == 0 or num_tumor_chunks == 0:
+        raise ValueError("Need at least one chunk per class")
 
-                # Add to appropriate class list
-                if label == 0:
-                    normal_patches.append(X)
-                else:
-                    tumor_patches.append(X)
+    # Calculate patches to load from each chunk to stay within memory budget
+    patches_per_normal_chunk = max(1, max_samples_per_class // num_normal_chunks)
+    patches_per_tumor_chunk = max(1, max_samples_per_class // num_tumor_chunks)
 
-        except Exception as e:
-            print(f"Error loading {path}: {e}")
-            continue
+    print(f"  Loading ~{patches_per_normal_chunk} patches/normal chunk, "
+          f"~{patches_per_tumor_chunk} patches/tumor chunk")
 
-    gc.collect()
+    def load_patches_from_chunks(chunks, patches_per_chunk, class_name):
+        """Load limited patches from each chunk incrementally."""
+        all_patches = []
+        total_loaded = 0
 
-    # Concatenate all patches per class
+        for i, (path, _) in enumerate(chunks):
+            try:
+                with np.load(path, mmap_mode="r") as data:
+                    X_mmap = data['X']
+                    n_available = len(X_mmap)
+
+                    # Only load up to patches_per_chunk from this chunk
+                    n_to_load = min(patches_per_chunk, n_available)
+                    idx = np.arange(n_to_load)
+
+                    # .copy() releases mmap reference
+                    patches = X_mmap[idx].astype(np.float32).copy()
+
+                    # Ensure [0, 1] range
+                    if patches[:min(10, len(patches))].max() > 1.5:
+                        patches = patches / 255.0
+                    patches = np.clip(patches, 0.0, 1.0)
+
+                    all_patches.append(patches)
+                    total_loaded += len(patches)
+
+                    print(f"    {class_name} chunk {i + 1}/{len(chunks)}: "
+                          f"{len(patches)} patches (total: {total_loaded})")
+
+            except Exception as e:
+                print(f"    Error loading {path}: {e}")
+                continue
+            finally:
+                gc.collect()  # Clean up after each chunk
+
+        return all_patches, total_loaded
+
+    # Load patches incrementally from each class
+    normal_patches, n_normal = load_patches_from_chunks(
+        normal_chunks, patches_per_normal_chunk, "normal"
+    )
+    tumor_patches, n_tumor = load_patches_from_chunks(
+        tumor_chunks, patches_per_tumor_chunk, "tumor"
+    )
+
+    # Concatenate patches per class
     if normal_patches:
         all_normal = np.concatenate(normal_patches, axis=0)
         del normal_patches
@@ -431,18 +469,6 @@ def create_preloaded_val_dataset(
     gc.collect()
 
     print(f"  Loaded: {len(all_normal)} normal, {len(all_tumor)} tumor patches")
-
-    # Apply max samples limit per class
-    if max_samples_per_class > 0:
-        if len(all_normal) > max_samples_per_class:
-            # Use deterministic sampling with fixed seed
-            rng = np.random.default_rng(42)
-            idx = rng.choice(len(all_normal), max_samples_per_class, replace=False)
-            all_normal = all_normal[np.sort(idx)]
-        if len(all_tumor) > max_samples_per_class:
-            rng = np.random.default_rng(42)
-            idx = rng.choice(len(all_tumor), max_samples_per_class, replace=False)
-            all_tumor = all_tumor[np.sort(idx)]
 
     # Balance classes: take min(n_normal, n_tumor) from each
     n_per_class = min(len(all_normal), len(all_tumor))
