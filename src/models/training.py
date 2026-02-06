@@ -264,7 +264,12 @@ def run_binary_experiment(
     
     try:
         # Setup pipeline
-        train_ds, val_ds, train_steps, _ = setup_training_pipeline(binary_path, config)
+        train_ds, val_ds, train_steps, _ = setup_training_pipeline(
+            binary_path,
+            config,
+            use_preloaded_val=config.use_preloaded_val,
+            val_max_samples_per_class=config.val_max_samples_per_class
+        )
         
         # Build model
         model = get_model(model_name)

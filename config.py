@@ -99,25 +99,29 @@ class DatasetConfig:
 @dataclass
 class TrainingConfig:
     """Configuration for model training."""
-    
+
     # Batch size (limited by GPU memory)
     batch_size: int = 32
-    
+
     # Learning rate
     learning_rate: float = 1e-4
-    
+
     # Maximum epochs (early stopping may end sooner)
     max_epochs: int = 20
-    
+
     # Early stopping patience
     patience: int = 5
-    
+
     # Train/validation split ratio
     val_split: float = 0.3
-    
+
     # Data pipeline
     cycle_length: int = 4      # Chunks to read in parallel
     max_patches_per_chunk: int = 800  # Memory control
+
+    # Validation dataset loading
+    use_preloaded_val: bool = True  # Use cached, class-balanced validation
+    val_max_samples_per_class: int = 2000  # Safe default for GPU memory
 
 
 @dataclass
