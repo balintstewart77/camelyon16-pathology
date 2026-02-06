@@ -356,6 +356,139 @@ def create_val_dataset(
     return dataset
 
 
+def create_preloaded_val_dataset(
+    chunk_files: List[str],
+    labels: List[int],
+    batch_size: int = 32,
+    max_samples_per_class: int = 15000
+) -> Tuple[tf.data.Dataset, int]:
+    """
+    Create a pre-loaded, cached validation dataset for stable metrics.
+
+    Loads ALL validation patches into memory, balances classes, and interleaves
+    at the sample level (N,T,N,T,...) so every batch is ~50% balanced.
+    Uses from_tensor_slices() + cache() for identical results every epoch.
+
+    This solves validation instability caused by:
+    - Generator re-instantiation with fresh RNG state
+    - Small shuffle buffers not mixing across chunks
+    - Fragile while True + break patterns
+
+    Args:
+        chunk_files: List of chunk file paths
+        labels: List of labels for each chunk (0=normal, 1=tumor)
+        batch_size: Batch size
+        max_samples_per_class: Maximum samples per class to load (default 15000)
+
+    Returns:
+        (tf.data.Dataset, total_samples) - cached dataset and sample count
+    """
+    print("Loading validation patches into memory...")
+
+    # Collect patches by class
+    normal_patches = []
+    tumor_patches = []
+
+    for path, label in zip(chunk_files, labels):
+        try:
+            with np.load(path, mmap_mode="r") as data:
+                X_mmap = data['X']
+                n = len(X_mmap)
+
+                # Load all patches from this chunk
+                X = X_mmap[:].astype(np.float32)
+
+                # Ensure [0, 1] range
+                if X[:min(10, n)].max() > 1.5:
+                    X = X / 255.0
+                X = np.clip(X, 0.0, 1.0)
+
+                # Add to appropriate class list
+                if label == 0:
+                    normal_patches.append(X)
+                else:
+                    tumor_patches.append(X)
+
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+            continue
+
+    gc.collect()
+
+    # Concatenate all patches per class
+    if normal_patches:
+        all_normal = np.concatenate(normal_patches, axis=0)
+        del normal_patches
+    else:
+        all_normal = np.empty((0, 224, 224, 3), dtype=np.float32)
+
+    if tumor_patches:
+        all_tumor = np.concatenate(tumor_patches, axis=0)
+        del tumor_patches
+    else:
+        all_tumor = np.empty((0, 224, 224, 3), dtype=np.float32)
+
+    gc.collect()
+
+    print(f"  Loaded: {len(all_normal)} normal, {len(all_tumor)} tumor patches")
+
+    # Apply max samples limit per class
+    if max_samples_per_class > 0:
+        if len(all_normal) > max_samples_per_class:
+            # Use deterministic sampling with fixed seed
+            rng = np.random.default_rng(42)
+            idx = rng.choice(len(all_normal), max_samples_per_class, replace=False)
+            all_normal = all_normal[np.sort(idx)]
+        if len(all_tumor) > max_samples_per_class:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(len(all_tumor), max_samples_per_class, replace=False)
+            all_tumor = all_tumor[np.sort(idx)]
+
+    # Balance classes: take min(n_normal, n_tumor) from each
+    n_per_class = min(len(all_normal), len(all_tumor))
+
+    if n_per_class == 0:
+        raise ValueError("No patches found for one or both classes")
+
+    all_normal = all_normal[:n_per_class]
+    all_tumor = all_tumor[:n_per_class]
+
+    print(f"  Balanced: {n_per_class} samples per class ({2 * n_per_class} total)")
+
+    # Interleave at sample level: N,T,N,T,N,T...
+    # This ensures every batch has ~50% class balance
+    interleaved_X = np.empty((2 * n_per_class, 224, 224, 3), dtype=np.float32)
+    interleaved_y = np.empty(2 * n_per_class, dtype=np.int32)
+
+    interleaved_X[0::2] = all_normal  # Even indices: normal
+    interleaved_X[1::2] = all_tumor   # Odd indices: tumor
+    interleaved_y[0::2] = 0
+    interleaved_y[1::2] = 1
+
+    del all_normal, all_tumor
+    gc.collect()
+
+    # Create dataset with from_tensor_slices (deterministic)
+    dataset = tf.data.Dataset.from_tensor_slices((interleaved_X, interleaved_y))
+
+    # Cache for identical results every epoch - NO shuffle, NO repeat
+    dataset = dataset.cache()
+
+    # Batch
+    dataset = dataset.batch(batch_size, drop_remainder=False)
+    dataset = dataset.prefetch(2)
+
+    # Force determinism
+    opts = tf.data.Options()
+    opts.deterministic = True
+    dataset = dataset.with_options(opts)
+
+    total_samples = 2 * n_per_class
+    print(f"  Created cached validation dataset: {total_samples} samples")
+
+    return dataset, total_samples
+
+
 def create_binary_dataset(
     dataset_path: str,
     class_mapping: Dict[int, List[str]],
@@ -405,15 +538,22 @@ def create_binary_dataset(
 
 def setup_training_pipeline(
     base_path: str,
-    config: TrainingConfig = None
+    config: TrainingConfig = None,
+    use_preloaded_val: bool = True,
+    val_max_samples_per_class: int = 15000
 ) -> Tuple[tf.data.Dataset, tf.data.Dataset, int, int]:
     """
     Set up complete training and validation pipelines.
-    
+
     Args:
         base_path: Path to dataset (binary structure)
         config: Training configuration
-        
+        use_preloaded_val: If True, load all validation patches into memory
+            with class balancing and interleaving for stable metrics.
+            If False, use generator-based approach (legacy behaviour).
+        val_max_samples_per_class: Maximum validation samples per class when
+            use_preloaded_val=True (default 15000). Set to -1 for no limit.
+
     Returns:
         (train_dataset, val_dataset, train_steps, val_steps)
     """
@@ -456,18 +596,96 @@ def setup_training_pipeline(
     )
     train_dataset = train_dataset.repeat()
 
-    val_dataset = create_val_dataset(
-        val_files, val_labels,
-        batch_size=config.batch_size,
-        max_patches_per_chunk=None  # Load all validation patches
-    )
-    
-    # Estimate steps
+    # Create validation dataset using selected approach
+    if use_preloaded_val:
+        # Pre-loaded approach: stable, cached, class-balanced
+        val_dataset, val_samples = create_preloaded_val_dataset(
+            val_files, val_labels,
+            batch_size=config.batch_size,
+            max_samples_per_class=val_max_samples_per_class
+        )
+        val_steps = (val_samples + config.batch_size - 1) // config.batch_size
+    else:
+        # Legacy generator approach (for rollback if needed)
+        val_dataset = create_val_dataset(
+            val_files, val_labels,
+            batch_size=config.batch_size,
+            max_patches_per_chunk=None  # Load all validation patches
+        )
+        val_steps = None  # Let Keras consume full dataset
+
+    # Estimate training steps
     # Rough estimate based on chunk count and max patches
     patches_per_chunk = config.max_patches_per_chunk or 1000
     train_steps = max(100, len(train_files) * patches_per_chunk // config.batch_size)
-    val_steps = None  # Let Keras consume full dataset
-    
-    print(f"Steps: {train_steps} train, auto val")
-    
+
+    print(f"Steps: {train_steps} train, {val_steps or 'auto'} val")
+
     return train_dataset, val_dataset, train_steps, val_steps
+
+
+def diagnose_validation_stability(
+    model,
+    val_dataset: tf.data.Dataset,
+    num_checks: int = 5,
+    val_steps: int = None
+) -> Dict[str, float]:
+    """
+    Diagnose validation stability by running evaluation multiple times.
+
+    Runs model.evaluate() multiple times on the same dataset and reports
+    accuracy variance. Useful for detecting instability caused by:
+    - Generator re-instantiation
+    - Non-deterministic data loading
+    - Batch normalisation sensitivity to batch composition
+
+    Args:
+        model: Compiled Keras model
+        val_dataset: Validation dataset to test
+        num_checks: Number of evaluation runs (default 5)
+        val_steps: Number of validation steps (None for auto)
+
+    Returns:
+        Dictionary with 'accuracies', 'mean', 'std', 'variance', 'is_stable'
+    """
+    print(f"\nDiagnosing validation stability ({num_checks} runs)...")
+
+    accuracies = []
+    for i in range(num_checks):
+        results = model.evaluate(val_dataset, steps=val_steps, verbose=0)
+
+        # Handle both single metric and list of metrics
+        if isinstance(results, list):
+            # Assume accuracy is second metric (after loss)
+            acc = results[1] if len(results) > 1 else results[0]
+        else:
+            acc = results
+
+        accuracies.append(acc * 100)  # Convert to percentage
+        print(f"  Run {i + 1}: {acc * 100:.2f}%")
+
+    accuracies = np.array(accuracies)
+    mean_acc = np.mean(accuracies)
+    std_acc = np.std(accuracies)
+    variance = np.var(accuracies)
+
+    print(f"\nResults:")
+    print(f"  Mean accuracy: {mean_acc:.2f}%")
+    print(f"  Std deviation: {std_acc:.4f}%")
+    print(f"  Variance: {variance:.6f}")
+
+    is_stable = variance < 1.0  # 1% variance threshold
+
+    if is_stable:
+        print(f"  Status: STABLE (variance {variance:.4f}% < 1%)")
+    else:
+        print(f"  WARNING: UNSTABLE (variance {variance:.4f}% > 1%)")
+        print(f"  Consider using use_preloaded_val=True for stable validation")
+
+    return {
+        'accuracies': accuracies.tolist(),
+        'mean': mean_acc,
+        'std': std_acc,
+        'variance': variance,
+        'is_stable': is_stable
+    }
