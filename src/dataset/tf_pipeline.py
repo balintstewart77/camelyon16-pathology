@@ -294,6 +294,12 @@ def _create_single_class_dataset(
     return dataset
 
 
+def _shuffle_batch(x, y):
+    """Shuffle samples within a batch to mix classes."""
+    idx = tf.random.shuffle(tf.range(tf.shape(x)[0]))
+    return tf.gather(x, idx), tf.gather(y, idx)
+
+
 def create_train_dataset(
     chunk_files: List[str],
     labels: List[int],
@@ -302,20 +308,21 @@ def create_train_dataset(
     cycle_length: int = 4
 ) -> tf.data.Dataset:
     """
-    Create a class-balanced training dataset.
+    Create a strictly class-balanced training dataset.
 
-    Uses sample_from_datasets() with equal weights to ensure ~50% class balance
-    in every batch. This stabilises BatchNorm statistics and gradient updates.
+    Uses batch-level balancing: batches half from each class, then concatenates.
+    This guarantees exactly 50% class balance in every batch, stabilising
+    BatchNorm statistics and gradient updates.
 
     Args:
         chunk_files: List of chunk file paths
         labels: List of labels for each chunk (0=normal, 1=tumor)
-        batch_size: Batch size
+        batch_size: Batch size (will be rounded down to even number)
         max_patches_per_chunk: Memory control (required for safe operation)
         cycle_length: Chunks to read in parallel
 
     Returns:
-        tf.data.Dataset yielding (batch_x, batch_y) with ~50/50 class balance
+        tf.data.Dataset yielding (batch_x, batch_y) with exact 50/50 class balance
     """
     # Split chunks by class
     normal_files = [f for f, l in zip(chunk_files, labels) if l == 0]
@@ -338,15 +345,28 @@ def create_train_dataset(
         cycle_length=max(1, cycle_length // 2)
     )
 
-    # Sample equally from both classes - ensures ~50/50 balance per batch
-    dataset = tf.data.Dataset.sample_from_datasets(
-        [normal_ds, tumor_ds],
-        weights=[0.5, 0.5],
-        seed=42
+    # Batch each class separately (half the batch size each)
+    half_batch = batch_size // 2
+    normal_batched = normal_ds.batch(half_batch)
+    tumor_batched = tumor_ds.batch(half_batch)
+
+    # Zip and concatenate to form strictly balanced batches
+    dataset = tf.data.Dataset.zip((normal_batched, tumor_batched))
+    dataset = dataset.map(
+        lambda n, t: (
+            tf.concat([n[0], t[0]], axis=0),  # Combine patches
+            tf.concat([n[1], t[1]], axis=0)   # Combine labels
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE
     )
 
-    # Batch and prefetch
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    # Shuffle within batch to mix classes (prevents model learning position)
+    dataset = dataset.map(
+        lambda x, y: _shuffle_batch(x, y),
+        num_parallel_calls=tf.data.AUTOTUNE
+    )
+
+    # Prefetch for performance
     dataset = dataset.prefetch(2)
 
     return dataset
