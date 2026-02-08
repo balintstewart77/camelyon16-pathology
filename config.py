@@ -123,6 +123,9 @@ class TrainingConfig:
     use_preloaded_val: bool = True  # Use cached, class-balanced validation
     val_max_samples_per_class: int = 2000  # Safe default for GPU memory
 
+    # Per-patch normalization
+    normalize_patches: bool = True  # Per-patch normalization to reduce stain variation
+
 
 @dataclass
 class Config:

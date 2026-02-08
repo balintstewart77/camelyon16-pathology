@@ -25,6 +25,13 @@ sys.path.insert(0, str(__file__).rsplit('/', 3)[0])
 from config import TrainingConfig, DEFAULT_CONFIG
 
 
+def _normalize_patch_channels(patch):
+    """Normalize patch to zero mean, unit std per channel."""
+    mean = tf.reduce_mean(patch, axis=[0, 1], keepdims=True)
+    std = tf.math.reduce_std(patch, axis=[0, 1], keepdims=True) + 1e-7
+    return (patch - mean) / std
+
+
 def load_chunk_paths(base_path: str) -> List[Tuple[str, int]]:
     """
     Load all chunk file paths with their labels.
@@ -305,7 +312,8 @@ def create_train_dataset(
     labels: List[int],
     batch_size: int = 32,
     max_patches_per_chunk: int = None,
-    cycle_length: int = 4
+    cycle_length: int = 4,
+    normalize: bool = False
 ) -> tf.data.Dataset:
     """
     Create a strictly class-balanced training dataset.
@@ -320,6 +328,7 @@ def create_train_dataset(
         batch_size: Batch size (will be rounded down to even number)
         max_patches_per_chunk: Memory control (required for safe operation)
         cycle_length: Chunks to read in parallel
+        normalize: If True, apply per-patch channel normalization
 
     Returns:
         tf.data.Dataset yielding (batch_x, batch_y) with exact 50/50 class balance
@@ -365,6 +374,13 @@ def create_train_dataset(
         lambda x, y: _shuffle_batch(x, y),
         num_parallel_calls=tf.data.AUTOTUNE
     )
+
+    # Apply per-patch normalization if enabled
+    if normalize:
+        dataset = dataset.map(
+            lambda x, y: (tf.map_fn(_normalize_patch_channels, x), y),
+            num_parallel_calls=2  # Fixed parallelism, not AUTOTUNE
+        )
 
     # Prefetch for performance
     dataset = dataset.prefetch(2)
@@ -434,7 +450,8 @@ def create_preloaded_val_dataset(
     chunk_files: List[str],
     labels: List[int],
     batch_size: int = 32,
-    max_samples_per_class: int = 15000
+    max_samples_per_class: int = 15000,
+    normalize: bool = False
 ) -> Tuple[tf.data.Dataset, int]:
     """
     Create a pre-loaded, cached validation dataset for stable metrics.
@@ -457,6 +474,7 @@ def create_preloaded_val_dataset(
         labels: List of labels for each chunk (0=normal, 1=tumor)
         batch_size: Batch size
         max_samples_per_class: Maximum samples per class to load (default 15000)
+        normalize: If True, apply per-patch channel normalization
 
     Returns:
         (tf.data.Dataset, total_samples) - cached dataset and sample count
@@ -553,6 +571,14 @@ def create_preloaded_val_dataset(
 
     # Batch
     dataset = dataset.batch(batch_size, drop_remainder=False)
+
+    # Apply per-patch normalization if enabled
+    if normalize:
+        dataset = dataset.map(
+            lambda x, y: (tf.map_fn(_normalize_patch_channels, x), y),
+            num_parallel_calls=2  # Fixed parallelism, not AUTOTUNE
+        )
+
     dataset = dataset.prefetch(2)
 
     # Force determinism
@@ -669,7 +695,8 @@ def setup_training_pipeline(
         train_files, train_labels,
         batch_size=config.batch_size,
         max_patches_per_chunk=config.max_patches_per_chunk,
-        cycle_length=config.cycle_length
+        cycle_length=config.cycle_length,
+        normalize=config.normalize_patches
     )
     train_dataset = train_dataset.repeat()
 
@@ -679,7 +706,8 @@ def setup_training_pipeline(
         val_dataset, val_samples = create_preloaded_val_dataset(
             val_files, val_labels,
             batch_size=config.batch_size,
-            max_samples_per_class=val_max_samples_per_class
+            max_samples_per_class=val_max_samples_per_class,
+            normalize=config.normalize_patches
         )
         val_steps = (val_samples + config.batch_size - 1) // config.batch_size
     else:
