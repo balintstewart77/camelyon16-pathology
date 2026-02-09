@@ -68,6 +68,7 @@ class FourClassGenerator:
         """
         self.config = config or DEFAULT_CONFIG
         self.stain_normalise = stain_normalise
+        self.reference_image_path = reference_image_path  # Store for metadata
 
         # Initialise stain normaliser if requested
         if stain_normalise:
@@ -83,43 +84,47 @@ class FourClassGenerator:
     
     def _save_chunk(
         self,
-        patches: List[Tuple[np.ndarray, int, str]],
+        patches: List[Tuple[np.ndarray, int, str, int, int]],
         save_dir: Path,
         class_id: int,
         chunk_num: int
     ) -> None:
         """
         Save a chunk of patches to disk.
-        
+
         Each chunk contains:
         - X: Patch arrays (N, 224, 224, 3)
         - y: Labels (N,)
         - slides: Slide IDs (N,) for leakage verification
+        - coords: (x, y) coordinates (N, 2) for visualisation
         """
         if not patches:
             return
-        
+
         # Unpack patches
         imgs = [p[0] for p in patches]
         labels = [p[1] for p in patches]
         slides = [p[2] for p in patches]
-        
+        coords_x = [p[3] for p in patches]
+        coords_y = [p[4] for p in patches]
+
         # Stack into arrays
         X = np.stack(imgs).astype(np.float32)
         y = np.array(labels, dtype=np.int32)
         slide_array = np.array(slides, dtype='U50')
-        
+        coords = np.stack([coords_x, coords_y], axis=1).astype(np.int32)
+
         # Shuffle within chunk
         perm = np.random.permutation(len(X))
-        X, y, slide_array = X[perm], y[perm], slide_array[perm]
-        
+        X, y, slide_array, coords = X[perm], y[perm], slide_array[perm], coords[perm]
+
         # Save
         class_name = self.class_names[class_id]
         filename = f"{class_name}_chunk_{chunk_num:03d}.npz"
         out_path = save_dir / class_name / filename
-        
-        np.savez_compressed(out_path, X=X, y=y, slides=slide_array)
-        
+
+        np.savez_compressed(out_path, X=X, y=y, slides=slide_array, coords=coords)
+
         print(f"    Saved {class_name} chunk {chunk_num}: "
               f"{len(X)} patches from {len(set(slides))} slides")
     
@@ -127,11 +132,11 @@ class FourClassGenerator:
         self,
         slide_filename: str,
         n_patches: int
-    ) -> List[Tuple[np.ndarray, int, str]]:
+    ) -> List[Tuple[np.ndarray, int, str, int, int]]:
         """
         Extract normal patches from a normal slide.
-        
-        Returns list of (patch_array, label=0, slide_id) tuples.
+
+        Returns list of (patch_array, label=0, slide_id, x, y) tuples.
         """
         # Download slide
         slide_path = download_file_from_s3(
@@ -141,11 +146,11 @@ class FourClassGenerator:
         )
         if not slide_path:
             return []
-        
+
         try:
             slide = openslide.OpenSlide(slide_path)
             slide_id = Path(slide_filename).stem
-            
+
             # Get tissue mask and sample coordinates
             mask = get_tissue_mask(slide)
             coords = sample_grid_coordinates(
@@ -153,11 +158,11 @@ class FourClassGenerator:
                 patch_size=self.config.data.patch_size,
                 stride=self.config.sampling.normal_stride
             )
-            
+
             # Randomly select coordinates
             random.shuffle(coords)
             coords = coords[:n_patches]
-            
+
             # Extract patches
             patches = []
             for x, y in coords:
@@ -167,7 +172,7 @@ class FourClassGenerator:
                         self.config.data.patch_size
                     )
                     patch_array = preprocess_patch(patch_pil, augment=False, stain_normalise=self.stain_normalise)
-                    patches.append((patch_array, 0, slide_id))
+                    patches.append((patch_array, 0, slide_id, x, y))
                 except Exception:
                     continue
 
@@ -182,11 +187,11 @@ class FourClassGenerator:
         self,
         slide_filename: str,
         patches_per_class: Dict[int, int]
-    ) -> Dict[int, List[Tuple[np.ndarray, int, str]]]:
+    ) -> Dict[int, List[Tuple[np.ndarray, int, str, int, int]]]:
         """
-        Extract patches from a tumor slide, organized by class.
-        
-        Returns dict mapping class (1,2,3) to patch lists.
+        Extract patches from a tumor slide, organised by class.
+
+        Returns dict mapping class (1,2,3) to patch lists with coordinates.
         """
         # Download slide and annotations
         slide_path = download_file_from_s3(
@@ -200,12 +205,12 @@ class FourClassGenerator:
             xml_filename,
             self.config.data.temp_dir
         )
-        
+
         if not slide_path or not xml_path:
             cleanup_file(slide_path)
             cleanup_file(xml_path)
             return {1: [], 2: [], 3: []}
-        
+
         try:
             # Sample coordinates by class
             coords_by_class = sample_coordinates_by_class(
@@ -213,20 +218,20 @@ class FourClassGenerator:
                 config=self.config.sampling,
                 patch_size=self.config.data.patch_size
             )
-            
+
             slide = openslide.OpenSlide(slide_path)
             slide_id = Path(slide_filename).stem
-            
+
             # Extract patches for each class
             result = {1: [], 2: [], 3: []}
-            
+
             for class_id in [1, 2, 3]:
                 coords = coords_by_class.get(class_id, [])
                 target = patches_per_class.get(class_id, 0)
-                
+
                 random.shuffle(coords)
                 coords = coords[:target]
-                
+
                 for x, y in coords:
                     try:
                         patch_pil = extract_patch(
@@ -234,15 +239,15 @@ class FourClassGenerator:
                             self.config.data.patch_size
                         )
                         patch_array = preprocess_patch(patch_pil, augment=False, stain_normalise=self.stain_normalise)
-                        result[class_id].append((patch_array, class_id, slide_id))
+                        result[class_id].append((patch_array, class_id, slide_id, x, y))
                     except Exception:
                         continue
 
                 print(f"    Class {class_id}: {len(result[class_id])}/{target}")
-            
+
             slide.close()
             return result
-            
+
         finally:
             cleanup_file(slide_path)
             cleanup_file(xml_path)
@@ -384,7 +389,9 @@ class FourClassGenerator:
             'config': {
                 'patch_size': self.config.data.patch_size,
                 'chunk_size': chunk_size,
-                'seed': self.config.dataset.seed
+                'seed': self.config.dataset.seed,
+                'stain_normalised': self.stain_normalise,
+                'reference_image': self.reference_image_path if self.stain_normalise else None
             }
         }
         np.save(base_path / 'metadata.npy', metadata)
