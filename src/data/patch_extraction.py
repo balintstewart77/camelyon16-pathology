@@ -17,7 +17,6 @@ from PIL import Image, ImageEnhance
 
 # Optional torchstain for stain normalisation
 try:
-    import torch
     import torchstain
     TORCHSTAIN_AVAILABLE = True
 except ImportError:
@@ -52,11 +51,9 @@ def get_stain_normaliser(reference_image: np.ndarray = None):
         return None
 
     if reference_image is not None:
-        # torchstain expects (C, H, W) torch tensor
-        ref_tensor = torch.from_numpy(reference_image).permute(2, 0, 1).unsqueeze(0).float()
-
+        # backend='numpy' expects numpy arrays directly
         _stain_normaliser = torchstain.normalizers.MacenkoNormalizer(backend='numpy')
-        _stain_normaliser.fit(ref_tensor)
+        _stain_normaliser.fit(reference_image)
         print("Stain normaliser initialised with reference image")
 
     return _stain_normaliser
@@ -78,18 +75,12 @@ def normalise_stain(patch: np.ndarray) -> np.ndarray:
         return patch
 
     try:
-        # Convert to tensor (C, H, W)
-        patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).unsqueeze(0).float()
-
-        # Normalise
-        normalised, _, _ = normaliser.normalize(I=patch_tensor, stains=False)
-
-        # Convert back to numpy (H, W, C) uint8
-        result = normalised.squeeze(0).permute(1, 2, 0).numpy().astype(np.uint8)
-        return result
+        # backend='numpy' works with numpy arrays directly
+        normalised, _, _ = normaliser.normalize(I=patch, stains=False)
+        return normalised.astype(np.uint8)
 
     except Exception:
-        # Some patches may fail - return original
+        # Some patches may fail (e.g., too much background) - return original
         return patch
 
 
