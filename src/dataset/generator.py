@@ -406,7 +406,178 @@ class FourClassGenerator:
             pct = count / target * 100 if target > 0 else 0
             print(f"  {name}: {count:,}/{target:,} ({pct:.1f}%)")
         print(f"\nSaved to: {base_path}")
-        
+
+        return base_path
+
+    def generate_test_dataset(
+        self,
+        save_path: str = "./data/test_patches",
+        class_targets: Dict[int, int] = None
+    ) -> Optional[Path]:
+        """
+        Generate 4-class test dataset with balanced class sampling.
+
+        Uses same approach as training: sample by class to ensure
+        enough patches per class for reliable evaluation metrics.
+
+        Args:
+            save_path: Where to save
+            class_targets: Target patches per class
+        """
+        if class_targets is None:
+            class_targets = {
+                0: 28000,   # Normal from Normal (~1.1x factor)
+                1: 25000,   # Normal from Tumor
+                2: 36000,   # Boundary (rare, ~1.45x oversample)
+                3: 50000    # Pure Tumor (~2x oversample)
+            }
+
+        np.random.seed(self.config.dataset.seed)
+        random.seed(self.config.dataset.seed)
+
+        base_path = Path(save_path)
+        for class_name in self.class_names.values():
+            (base_path / class_name).mkdir(parents=True, exist_ok=True)
+
+        # Get test slides from S3
+        print("Fetching test slide list from S3...")
+        all_slides = list_s3_files(self.config.data.s3_images, '.tif')
+        test_slides = sorted([f for f in all_slides if 'test' in f.lower()])
+
+        # Separate normal vs tumor test slides (tumor slides have annotations)
+        normal_test_slides = []
+        tumor_test_slides = []
+
+        print("Checking which test slides have annotations...")
+        for slide_name in test_slides:
+            xml_name = Path(slide_name).stem + '.xml'
+            # Check if annotation exists (download returns None if not found)
+            xml_path = download_file_from_s3(
+                self.config.data.s3_annotations,
+                xml_name,
+                self.config.data.temp_dir
+            )
+            if xml_path:
+                tumor_test_slides.append(slide_name)
+                cleanup_file(xml_path)
+            else:
+                normal_test_slides.append(slide_name)
+
+        print(f"Found {len(normal_test_slides)} normal test slides, "
+              f"{len(tumor_test_slides)} tumor test slides")
+
+        # Calculate patches per slide
+        if len(normal_test_slides) > 0:
+            normal_per_slide = math.ceil(class_targets[0] / len(normal_test_slides))
+        else:
+            normal_per_slide = 0
+
+        if len(tumor_test_slides) > 0:
+            tumor_per_slide = {
+                1: math.ceil(class_targets[1] / len(tumor_test_slides)),
+                2: math.ceil(class_targets[2] / len(tumor_test_slides)),
+                3: math.ceil(class_targets[3] / len(tumor_test_slides)),
+            }
+        else:
+            tumor_per_slide = {1: 0, 2: 0, 3: 0}
+
+        print(f"\nTargets per slide:")
+        print(f"  Normal test slides: {normal_per_slide} patches (class 0)")
+        print(f"  Tumor test slides: {tumor_per_slide}")
+
+        # Initialize tracking
+        chunk_size = self.config.dataset.chunk_size
+        buffers = {cls: [] for cls in range(4)}
+        chunk_counts = {cls: 0 for cls in range(4)}
+        total_counts = {cls: 0 for cls in range(4)}
+
+        # Process normal test slides (class 0)
+        print("\n=== Processing Normal Test Slides ===")
+        for slide_filename in normal_test_slides:
+            if total_counts[0] >= class_targets[0]:
+                break
+
+            patches = self._process_normal_slide(slide_filename, normal_per_slide)
+            buffers[0].extend(patches)
+            total_counts[0] += len(patches)
+
+            if len(buffers[0]) >= chunk_size:
+                self._save_chunk(buffers[0], base_path, 0, chunk_counts[0])
+                chunk_counts[0] += 1
+                buffers[0] = []
+                gc.collect()
+
+        # Save remaining class 0
+        if buffers[0]:
+            self._save_chunk(buffers[0], base_path, 0, chunk_counts[0])
+            chunk_counts[0] += 1
+            buffers[0] = []
+
+        # Process tumor test slides (classes 1, 2, 3)
+        print("\n=== Processing Tumor Test Slides ===")
+        for slide_filename in tumor_test_slides:
+            if all(total_counts[c] >= class_targets[c] for c in [1, 2, 3]):
+                break
+
+            print(f"\n{slide_filename}")
+            patches_by_class = self._process_tumor_slide(slide_filename, tumor_per_slide)
+
+            for class_id in [1, 2, 3]:
+                patches = patches_by_class[class_id]
+
+                need = class_targets[class_id] - total_counts[class_id]
+                if len(patches) > need:
+                    patches = patches[:need]
+
+                buffers[class_id].extend(patches)
+                total_counts[class_id] += len(patches)
+
+                if len(buffers[class_id]) >= chunk_size:
+                    self._save_chunk(
+                        buffers[class_id], base_path,
+                        class_id, chunk_counts[class_id]
+                    )
+                    chunk_counts[class_id] += 1
+                    buffers[class_id] = []
+                    gc.collect()
+
+        # Save remaining patches
+        for class_id in [1, 2, 3]:
+            if buffers[class_id]:
+                self._save_chunk(
+                    buffers[class_id], base_path,
+                    class_id, chunk_counts[class_id]
+                )
+                chunk_counts[class_id] += 1
+
+        # Save metadata
+        metadata = {
+            'class_counts': total_counts,
+            'class_targets': class_targets,
+            'class_names': self.class_names,
+            'chunk_counts': chunk_counts,
+            'num_normal_slides': len(normal_test_slides),
+            'num_tumor_slides': len(tumor_test_slides),
+            'config': {
+                'patch_size': self.config.data.patch_size,
+                'chunk_size': chunk_size,
+                'seed': self.config.dataset.seed,
+                'stain_normalised': self.stain_normalise,
+                'reference_image': self.reference_image_path if self.stain_normalise else None
+            }
+        }
+        np.save(base_path / 'metadata.npy', metadata)
+
+        print("\n" + "=" * 50)
+        print("TEST DATASET GENERATION COMPLETE")
+        print("=" * 50)
+        for class_id, name in self.class_names.items():
+            count = total_counts[class_id]
+            target = class_targets[class_id]
+            pct = count / target * 100 if target > 0 else 0
+            print(f"  {name}: {count:,}/{target:,} ({pct:.1f}%)")
+        print(f"\nSaved to: {base_path}")
+
         return base_path
 
 
@@ -436,6 +607,37 @@ def generate_dataset(
         **kwargs
     )
     return generator.generate(
+        class_targets=class_targets,
+        save_path=save_path
+    )
+
+
+def generate_test_dataset(
+    class_targets: Dict[int, int] = None,
+    save_path: str = "./data/test_patches",
+    stain_normalise: bool = False,
+    reference_image_path: str = None,
+    **kwargs
+) -> Optional[Path]:
+    """
+    Convenience function to generate 4-class test dataset.
+
+    Args:
+        class_targets: Target patches per class
+        save_path: Where to save the test dataset
+        stain_normalise: Whether to apply Macenko stain normalisation
+        reference_image_path: Path to reference image for stain normalisation
+        **kwargs: Additional arguments for FourClassGenerator
+
+    Returns:
+        Path to test dataset
+    """
+    generator = FourClassGenerator(
+        stain_normalise=stain_normalise,
+        reference_image_path=reference_image_path,
+        **kwargs
+    )
+    return generator.generate_test_dataset(
         class_targets=class_targets,
         save_path=save_path
     )
