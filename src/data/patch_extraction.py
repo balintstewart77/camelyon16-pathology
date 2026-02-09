@@ -14,6 +14,8 @@ from typing import List, Tuple, Dict, Optional, Iterator
 import numpy as np
 import openslide
 from PIL import Image, ImageEnhance
+from staintools import MacenkoStainNormalizer
+from staintools.preprocessing import LuminosityStandardizer
 
 import sys
 sys.path.insert(0, str(__file__).rsplit('/', 3)[0])
@@ -21,6 +23,66 @@ from config import SamplingConfig, DataConfig, DEFAULT_CONFIG
 
 from .tissue_mask import get_tissue_mask, get_scaling_factors
 from .tumor_polygons import load_tumor_polygons, classify_patch
+
+
+# Global normaliser - will be initialised on first use
+_stain_normaliser = None
+_reference_image = None
+
+
+def get_stain_normaliser(reference_image: np.ndarray = None):
+    """
+    Get or initialise the global stain normaliser.
+
+    If reference_image is provided, fits the normaliser to it.
+    Otherwise returns the existing normaliser (or None if not initialised).
+
+    Args:
+        reference_image: RGB uint8 array (224, 224, 3) to use as reference
+
+    Returns:
+        MacenkoStainNormalizer or None
+    """
+    global _stain_normaliser, _reference_image
+
+    if reference_image is not None:
+        # Standardise luminosity of reference
+        reference_std = LuminosityStandardizer.standardize(reference_image)
+
+        # Fit normaliser
+        _stain_normaliser = MacenkoStainNormalizer()
+        _stain_normaliser.fit(reference_std)
+        _reference_image = reference_image
+        print("Stain normaliser initialised with reference image")
+
+    return _stain_normaliser
+
+
+def normalise_stain(patch: np.ndarray) -> np.ndarray:
+    """
+    Apply Macenko stain normalisation to a patch.
+
+    Args:
+        patch: RGB uint8 array (224, 224, 3)
+
+    Returns:
+        Normalised RGB uint8 array (224, 224, 3)
+    """
+    normaliser = get_stain_normaliser()
+
+    if normaliser is None:
+        return patch  # No normalisation if not initialised
+
+    try:
+        # Standardise luminosity first
+        patch_std = LuminosityStandardizer.standardize(patch)
+        # Apply stain normalisation
+        normalised = normaliser.transform(patch_std)
+        return normalised
+    except Exception:
+        # Some patches may fail (e.g., too much background)
+        # Return original in that case
+        return patch
 
 
 def sample_grid_coordinates(
@@ -202,7 +264,8 @@ def extract_patch(
 def preprocess_patch(
     patch: Image.Image,
     augment: bool = False,
-    normalise: bool = True
+    normalise: bool = True,
+    stain_normalise: bool = False
 ) -> np.ndarray:
     """
     Preprocess a patch for model input.
@@ -216,11 +279,18 @@ def preprocess_patch(
         patch: PIL Image
         augment: Whether to apply random augmentation
         normalise: Whether to scale to [0, 1]
+        stain_normalise: Whether to apply Macenko stain normalisation
 
     Returns:
         NumPy array of shape (224, 224, 3), dtype float32
     """
     img = patch
+
+    # Apply stain normalisation BEFORE augmentation (on uint8)
+    if stain_normalise:
+        img_array = np.array(img, dtype=np.uint8)
+        img_array = normalise_stain(img_array)
+        img = Image.fromarray(img_array)
 
     if augment:
         # Random horizontal flip
@@ -253,29 +323,31 @@ def extract_patches_from_slide(
     slide_path: str,
     coordinates: List[Tuple[int, int]],
     patch_size: int = 224,
-    augment: bool = False
+    augment: bool = False,
+    stain_normalise: bool = False
 ) -> Iterator[Tuple[np.ndarray, int, int]]:
     """
     Extract multiple patches from a slide given coordinates.
-    
+
     Generator that yields patches one at a time to manage memory.
-    
+
     Args:
         slide_path: Path to WSI file
         coordinates: List of (x, y) patch centers
         patch_size: Patch size
         augment: Whether to augment
-        
+        stain_normalise: Whether to apply Macenko stain normalisation
+
     Yields:
         (patch_array, x, y) tuples
     """
     slide = openslide.OpenSlide(slide_path)
-    
+
     try:
         for x, y in coordinates:
             try:
                 patch_pil = extract_patch(slide, x, y, patch_size)
-                patch_array = preprocess_patch(patch_pil, augment=augment)
+                patch_array = preprocess_patch(patch_pil, augment=augment, stain_normalise=stain_normalise)
                 yield patch_array, x, y
             except Exception:
                 continue
