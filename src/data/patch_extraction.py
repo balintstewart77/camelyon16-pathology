@@ -14,8 +14,15 @@ from typing import List, Tuple, Dict, Optional, Iterator
 import numpy as np
 import openslide
 from PIL import Image, ImageEnhance
-from staintools import MacenkoStainNormalizer
-from staintools.preprocessing import LuminosityStandardizer
+
+# Optional torchstain for stain normalisation
+try:
+    import torch
+    import torchstain
+    TORCHSTAIN_AVAILABLE = True
+except ImportError:
+    TORCHSTAIN_AVAILABLE = False
+    print("Warning: torchstain not installed. Stain normalisation disabled.")
 
 import sys
 sys.path.insert(0, str(__file__).rsplit('/', 3)[0])
@@ -27,32 +34,29 @@ from .tumor_polygons import load_tumor_polygons, classify_patch
 
 # Global normaliser - will be initialised on first use
 _stain_normaliser = None
-_reference_image = None
 
 
 def get_stain_normaliser(reference_image: np.ndarray = None):
     """
     Get or initialise the global stain normaliser.
 
-    If reference_image is provided, fits the normaliser to it.
-    Otherwise returns the existing normaliser (or None if not initialised).
-
     Args:
-        reference_image: RGB uint8 array (224, 224, 3) to use as reference
+        reference_image: RGB uint8 array (H, W, 3) to use as reference
 
     Returns:
-        MacenkoStainNormalizer or None
+        Normaliser or None
     """
-    global _stain_normaliser, _reference_image
+    global _stain_normaliser
+
+    if not TORCHSTAIN_AVAILABLE:
+        return None
 
     if reference_image is not None:
-        # Standardise luminosity of reference
-        reference_std = LuminosityStandardizer.standardize(reference_image)
+        # torchstain expects (C, H, W) torch tensor
+        ref_tensor = torch.from_numpy(reference_image).permute(2, 0, 1).unsqueeze(0).float()
 
-        # Fit normaliser
-        _stain_normaliser = MacenkoStainNormalizer()
-        _stain_normaliser.fit(reference_std)
-        _reference_image = reference_image
+        _stain_normaliser = torchstain.normalizers.MacenkoNormalizer(backend='numpy')
+        _stain_normaliser.fit(ref_tensor)
         print("Stain normaliser initialised with reference image")
 
     return _stain_normaliser
@@ -63,25 +67,29 @@ def normalise_stain(patch: np.ndarray) -> np.ndarray:
     Apply Macenko stain normalisation to a patch.
 
     Args:
-        patch: RGB uint8 array (224, 224, 3)
+        patch: RGB uint8 array (H, W, 3)
 
     Returns:
-        Normalised RGB uint8 array (224, 224, 3)
+        Normalised RGB uint8 array (H, W, 3)
     """
     normaliser = get_stain_normaliser()
 
     if normaliser is None:
-        return patch  # No normalisation if not initialised
+        return patch
 
     try:
-        # Standardise luminosity first
-        patch_std = LuminosityStandardizer.standardize(patch)
-        # Apply stain normalisation
-        normalised = normaliser.transform(patch_std)
-        return normalised
+        # Convert to tensor (C, H, W)
+        patch_tensor = torch.from_numpy(patch).permute(2, 0, 1).unsqueeze(0).float()
+
+        # Normalise
+        normalised, _, _ = normaliser.normalize(I=patch_tensor, stains=False)
+
+        # Convert back to numpy (H, W, C) uint8
+        result = normalised.squeeze(0).permute(1, 2, 0).numpy().astype(np.uint8)
+        return result
+
     except Exception:
-        # Some patches may fail (e.g., too much background)
-        # Return original in that case
+        # Some patches may fail - return original
         return patch
 
 

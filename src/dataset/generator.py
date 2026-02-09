@@ -40,7 +40,8 @@ from src.data.patch_extraction import (
     sample_grid_coordinates,
     sample_coordinates_by_class,
     extract_patch,
-    preprocess_patch
+    preprocess_patch,
+    get_stain_normaliser
 )
 
 
@@ -56,15 +57,27 @@ class FourClassGenerator:
         ... )
     """
     
-    def __init__(self, config: Config = None):
+    def __init__(self, config: Config = None, stain_normalise: bool = False, reference_image_path: str = None):
         """
-        Initialize generator with configuration.
-        
+        Initialise generator with configuration.
+
         Args:
             config: Configuration object (uses defaults if None)
+            stain_normalise: Whether to apply Macenko stain normalisation
+            reference_image_path: Path to reference image for stain normalisation
         """
         self.config = config or DEFAULT_CONFIG
-        
+        self.stain_normalise = stain_normalise
+
+        # Initialise stain normaliser if requested
+        if stain_normalise:
+            if reference_image_path is None:
+                raise ValueError("reference_image_path required when stain_normalise=True")
+            from PIL import Image
+            reference = np.array(Image.open(reference_image_path))
+            get_stain_normaliser(reference)
+            print(f"Stain normalisation enabled with reference: {reference_image_path}")
+
         # Class name mapping
         self.class_names = self.config.class_names
     
@@ -153,18 +166,18 @@ class FourClassGenerator:
                         slide, x, y,
                         self.config.data.patch_size
                     )
-                    patch_array = preprocess_patch(patch_pil, augment=False)
+                    patch_array = preprocess_patch(patch_pil, augment=False, stain_normalise=self.stain_normalise)
                     patches.append((patch_array, 0, slide_id))
                 except Exception:
                     continue
-            
+
             slide.close()
             print(f"  {slide_filename}: {len(patches)} normal patches")
             return patches
-            
+
         finally:
             cleanup_file(slide_path)
-    
+
     def _process_tumor_slide(
         self,
         slide_filename: str,
@@ -220,11 +233,11 @@ class FourClassGenerator:
                             slide, x, y,
                             self.config.data.patch_size
                         )
-                        patch_array = preprocess_patch(patch_pil, augment=False)
+                        patch_array = preprocess_patch(patch_pil, augment=False, stain_normalise=self.stain_normalise)
                         result[class_id].append((patch_array, class_id, slide_id))
                     except Exception:
                         continue
-                
+
                 print(f"    Class {class_id}: {len(result[class_id])}/{target}")
             
             slide.close()
@@ -393,20 +406,28 @@ class FourClassGenerator:
 def generate_dataset(
     class_targets: Dict[int, int] = None,
     save_path: str = "./data/patches",
+    stain_normalise: bool = False,
+    reference_image_path: str = None,
     **kwargs
 ) -> Optional[Path]:
     """
     Convenience function to generate a 4-class dataset.
-    
+
     Args:
         class_targets: Target patches per class
         save_path: Where to save
+        stain_normalise: Whether to apply Macenko stain normalisation
+        reference_image_path: Path to reference image for stain normalisation
         **kwargs: Additional arguments for FourClassGenerator
-        
+
     Returns:
         Path to dataset
     """
-    generator = FourClassGenerator(**kwargs)
+    generator = FourClassGenerator(
+        stain_normalise=stain_normalise,
+        reference_image_path=reference_image_path,
+        **kwargs
+    )
     return generator.generate(
         class_targets=class_targets,
         save_path=save_path

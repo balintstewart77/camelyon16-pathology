@@ -8,7 +8,7 @@ seaborn>=0.12,<1
 pillow>=8,<12
 scikit-image>=0.18,<1.0
 shapely>=2.0,<3
-staintools
+torchstain
 
 # Machine learning
 scikit-learn>=1.2,<2
