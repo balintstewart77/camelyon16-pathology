@@ -290,7 +290,7 @@ def _create_single_class_dataset(
         lambda fp, lbl: chunk_reader(fp, lbl, max_patches_per_chunk),
         cycle_length=cycle_length,
         block_length=4,
-        num_parallel_calls=2,
+        num_parallel_calls=min(2, cycle_length),  # Cannot exceed cycle_length
         deterministic=False
     )
 
