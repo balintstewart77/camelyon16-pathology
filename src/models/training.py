@@ -25,7 +25,8 @@ from config import TrainingConfig, DEFAULT_CONFIG
 
 from src.dataset.tf_pipeline import (
     setup_training_pipeline,
-    create_binary_dataset
+    create_binary_dataset,
+    load_chunk_paths
 )
 from src.models.architectures import get_model
 
@@ -189,6 +190,65 @@ def evaluate_model(
         result['y_pred'] = y_pred
 
     return result
+
+
+def evaluate_on_test_set(
+    model: keras.Model,
+    test_dataset_path: str,
+    class_mapping: Dict,
+    model_name: str
+) -> Dict:
+    """
+    Evaluate a trained model on a held-out test set.
+
+    Args:
+        model: Trained Keras model
+        test_dataset_path: Path to test dataset (4-class format)
+        class_mapping: Dict mapping binary labels to 4-class labels,
+                       e.g. {0: ['normal_from_normal'], 1: ['pure_tumor']}
+        model_name: Name for display and temp directory naming
+
+    Returns:
+        Dict with accuracy, AUC, classification report, and predictions
+    """
+    binary_test_path = create_binary_dataset(
+        test_dataset_path, class_mapping, f"test_{model_name}"
+    )
+
+    try:
+        chunks = load_chunk_paths(binary_test_path)
+
+        X_test, y_test = [], []
+        for chunk_path, label in chunks:
+            with np.load(chunk_path) as data:
+                X_test.append(data['X'])
+                y_test.extend([label] * len(data['X']))
+
+        X_test = np.concatenate(X_test, axis=0)
+        y_test = np.array(y_test)
+
+        y_pred_proba = model.predict(X_test, batch_size=64, verbose=1)
+        y_pred = (y_pred_proba > 0.5).astype(int).flatten()
+
+        accuracy = accuracy_score(y_test, y_pred)
+        auc = roc_auc_score(y_test, y_pred_proba)
+        report = classification_report(
+            y_test, y_pred, target_names=['Normal', 'Tumor']
+        )
+
+        return {
+            'accuracy': accuracy,
+            'auc': auc,
+            'report': report,
+            'y_test': y_test,
+            'y_pred': y_pred,
+            'y_pred_proba': y_pred_proba
+        }
+    finally:
+        try:
+            shutil.rmtree(binary_test_path)
+        except Exception:
+            pass
 
 
 def run_binary_experiment(
