@@ -638,7 +638,6 @@ def create_binary_dataset(
 
             linked = 0
             for chunk_file in source_dir.glob('*.npz'):
-                # Prefix with source class to avoid collisions
                 safe_name = f"{source_class}_{chunk_file.name}"
                 link_path = target_dir / safe_name
 
@@ -655,7 +654,6 @@ def create_binary_dataset(
             total_linked += linked
 
     if total_linked == 0:
-        # Cleanup the empty temp dir
         shutil.rmtree(temp_dir, ignore_errors=True)
 
         available = [d.name for d in source_path.iterdir() if d.is_dir()]
