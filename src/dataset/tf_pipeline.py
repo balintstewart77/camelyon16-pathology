@@ -610,32 +610,67 @@ def create_binary_dataset(
         Path to temporary binary dataset
     """
     source_path = Path(dataset_path)
+
+    if not source_path.exists():
+        raise FileNotFoundError(
+            f"Dataset path does not exist: {dataset_path}"
+        )
+
     temp_dir = Path(tempfile.mkdtemp(prefix=f"{experiment_name.replace(' ', '_')}_"))
-    
+
     (temp_dir / 'normal').mkdir()
     (temp_dir / 'tumor').mkdir()
-    
+
+    total_linked = 0
+    missing_dirs = []
+
     for binary_label, source_classes in class_mapping.items():
         target_dir = temp_dir / ('normal' if binary_label == 0 else 'tumor')
-        
+
         if isinstance(source_classes, str):
             source_classes = [source_classes]
-        
+
         for source_class in source_classes:
             source_dir = source_path / source_class
             if not source_dir.exists():
+                missing_dirs.append(str(source_dir))
                 continue
-            
+
+            linked = 0
             for chunk_file in source_dir.glob('*.npz'):
                 # Prefix with source class to avoid collisions
                 safe_name = f"{source_class}_{chunk_file.name}"
                 link_path = target_dir / safe_name
-                
+
                 try:
                     os.symlink(str(chunk_file), str(link_path))
+                    linked += 1
                 except OSError:
-                    shutil.copy2(str(chunk_file), str(link_path))
-    
+                    try:
+                        shutil.copy2(str(chunk_file), str(link_path))
+                        linked += 1
+                    except Exception as e:
+                        print(f"  Warning: failed to link/copy {chunk_file.name}: {e}")
+
+            total_linked += linked
+
+    if total_linked == 0:
+        # Cleanup the empty temp dir
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+        available = [d.name for d in source_path.iterdir() if d.is_dir()]
+        requested = [
+            cls for classes in class_mapping.values()
+            for cls in (classes if isinstance(classes, list) else [classes])
+        ]
+        raise ValueError(
+            f"No .npz chunks found for experiment '{experiment_name}'.\n"
+            f"  Dataset path: {dataset_path}\n"
+            f"  Requested classes: {requested}\n"
+            f"  Missing directories: {missing_dirs or 'none (dirs exist but contain no .npz files)'}\n"
+            f"  Available subdirectories: {available}"
+        )
+
     return str(temp_dir)
 
 

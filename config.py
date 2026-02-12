@@ -123,8 +123,10 @@ class TrainingConfig:
     use_preloaded_val: bool = True  # Use cached, class-balanced validation
     val_max_samples_per_class: int = 2000  # Safe default for GPU memory
 
-    # Per-patch normalisation
-    normalise_patches: bool = True  # Per-patch normalisation to reduce stain variation
+    # Per-patch channel normalisation (zero-mean, unit-std per channel).
+    # Disable when using pre-stain-normalised datasets to avoid
+    # removing meaningful intensity differences between tissue types.
+    normalise_patches: bool = False
 
 
 @dataclass
