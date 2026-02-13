@@ -74,23 +74,47 @@ def create_callbacks(
     ]
 
 
+def find_optimal_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """
+    Find the optimal classification threshold using Youden's J statistic.
+
+    Maximises J = TPR - FPR (sensitivity + specificity - 1),
+    which is the standard approach for binary classification
+    with potentially imbalanced classes.
+
+    Args:
+        y_true: Ground truth binary labels
+        y_prob: Predicted probabilities
+
+    Returns:
+        Optimal threshold value
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+    j_scores = tpr - fpr
+    best_idx = np.argmax(j_scores)
+    return float(thresholds[best_idx])
+
+
 def evaluate_model(
     model: keras.Model,
     val_dataset: tf.data.Dataset,
     experiment_name: str,
     history: keras.callbacks.History = None,
-    threshold: float = 0.5,
+    threshold: float = None,
     keep_predictions: bool = False
 ) -> Dict:
     """
     Comprehensive model evaluation with visualisations.
+
+    If threshold is None, the optimal threshold is found automatically
+    using Youden's J statistic on the validation predictions.
 
     Args:
         model: Trained Keras model
         val_dataset: Validation dataset
         experiment_name: Name for plots
         history: Training history (optional)
-        threshold: Classification threshold
+        threshold: Classification threshold (None = find optimal)
         keep_predictions: If False, discard y_true/y_prob/y_pred arrays to save RAM
 
     Returns:
@@ -99,33 +123,41 @@ def evaluate_model(
     print(f"\n{'='*50}")
     print(f"Evaluating: {experiment_name}")
     print(f"{'='*50}")
-    
+
     # Collect predictions
     y_true, y_prob = [], []
-    
+
     for batch_x, batch_y in val_dataset:
         probs = model.predict(batch_x, verbose=0)
         y_prob.extend(probs.flatten())
         y_true.extend(batch_y.numpy().flatten())
-    
+
     y_true = np.array(y_true)
     y_prob = np.array(y_prob)
+
+    # Find optimal threshold if not provided
+    if threshold is None:
+        threshold = find_optimal_threshold(y_true, y_prob)
+        print(f"Optimal threshold: {threshold:.3f}")
+    else:
+        print(f"Using fixed threshold: {threshold:.3f}")
+
     y_pred = (y_prob >= threshold).astype(int)
-    
+
     # Metrics
     accuracy = accuracy_score(y_true, y_pred)
     auc = roc_auc_score(y_true, y_prob)
-    
+
     print(f"Samples: {len(y_true):,}")
     print(f"Accuracy: {accuracy:.1%}")
     print(f"AUC: {auc:.3f}")
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=['Normal', 'Tumor']))
-    
+
     # Plots
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    fig.suptitle(f'{experiment_name}\nAccuracy: {accuracy:.1%}, AUC: {auc:.3f}')
-    
+    fig.suptitle(f'{experiment_name}\nAccuracy: {accuracy:.1%}, AUC: {auc:.3f}, Threshold: {threshold:.3f}')
+
     # 1. Training curves (if history provided)
     if history:
         axes[0, 0].plot(history.history['loss'], label='Train')
@@ -135,7 +167,7 @@ def evaluate_model(
         axes[0, 0].set_xlabel('Epoch')
         axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
-        
+
         if 'accuracy' in history.history:
             axes[0, 1].plot(history.history['accuracy'], label='Train')
             if 'val_accuracy' in history.history:
@@ -147,16 +179,16 @@ def evaluate_model(
     else:
         axes[0, 0].text(0.5, 0.5, 'No history', ha='center', va='center')
         axes[0, 1].text(0.5, 0.5, 'No history', ha='center', va='center')
-    
+
     # 2. Prediction distribution
     axes[1, 0].hist(y_prob[y_true == 0], bins=30, alpha=0.7, label='Normal', density=True)
     axes[1, 0].hist(y_prob[y_true == 1], bins=30, alpha=0.7, label='Tumor', density=True)
-    axes[1, 0].axvline(threshold, color='red', linestyle='--', label=f'Threshold={threshold}')
+    axes[1, 0].axvline(threshold, color='red', linestyle='--', label=f'Threshold={threshold:.3f}')
     axes[1, 0].set_title('Prediction Distribution')
     axes[1, 0].set_xlabel('Probability')
     axes[1, 0].legend()
     axes[1, 0].grid(True, alpha=0.3)
-    
+
     # 3. Confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     im = axes[1, 1].imshow(cm, cmap='Blues')
@@ -167,12 +199,12 @@ def evaluate_model(
     axes[1, 1].set_xlabel('Predicted')
     axes[1, 1].set_ylabel('True')
     axes[1, 1].set_title('Confusion Matrix')
-    
+
     for i in range(2):
         for j in range(2):
             color = 'white' if cm[i, j] > cm.max() / 2 else 'black'
             axes[1, 1].text(j, i, str(cm[i, j]), ha='center', va='center', color=color, fontsize=14)
-    
+
     plt.tight_layout()
     plt.show()
 
@@ -196,10 +228,14 @@ def evaluate_on_test_set(
     model: keras.Model,
     test_dataset_path: str,
     class_mapping: Dict,
-    model_name: str
+    model_name: str,
+    threshold: float = 0.5
 ) -> Dict:
     """
     Evaluate a trained model on a held-out test set.
+
+    Uses the threshold found on the validation set (from evaluate_model)
+    to avoid data leakage. Do NOT find a new threshold on test data.
 
     Args:
         model: Trained Keras model
@@ -207,6 +243,7 @@ def evaluate_on_test_set(
         class_mapping: Dict mapping binary labels to 4-class labels,
                        e.g. {0: ['normal_from_normal'], 1: ['pure_tumor']}
         model_name: Name for display and temp directory naming
+        threshold: Classification threshold (use value from validation)
 
     Returns:
         Dict with accuracy, AUC, classification report, and predictions
@@ -228,7 +265,7 @@ def evaluate_on_test_set(
         y_test = np.array(y_test)
 
         y_pred_proba = model.predict(X_test, batch_size=64, verbose=1)
-        y_pred = (y_pred_proba > 0.5).astype(int).flatten()
+        y_pred = (y_pred_proba >= threshold).astype(int).flatten()
 
         accuracy = accuracy_score(y_test, y_pred)
         auc = roc_auc_score(y_test, y_pred_proba)
