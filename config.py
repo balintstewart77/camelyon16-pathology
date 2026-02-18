@@ -104,7 +104,7 @@ class TrainingConfig:
     batch_size: int = 32
 
     # Learning rate
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-5
 
     # Maximum epochs (early stopping may end sooner)
     max_epochs: int = 20

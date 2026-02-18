@@ -294,7 +294,7 @@ def run_binary_experiment(
     model_name: str = 'simple',
     config: TrainingConfig = None,
     epochs: int = 20,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 1e-5,
     keep_predictions: bool = False
 ) -> Dict:
     """
@@ -370,8 +370,12 @@ def run_binary_experiment(
         
         # Build model
         model = get_model(model_name)
+        optimizer = keras.optimizers.Adam(
+            learning_rate=learning_rate,
+            clipnorm=1.0 if model_name == 'subtle' else None
+        )
         model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+            optimizer=optimizer,
             loss='binary_crossentropy',
             metrics=['accuracy', keras.metrics.AUC(name='auc')]
         )
