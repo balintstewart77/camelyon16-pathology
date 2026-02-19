@@ -6,7 +6,9 @@ class combinations from the 4-class dataset.
 """
 
 import gc
+import json
 import shutil
+from pathlib import Path
 from typing import Dict, Optional, Tuple, Callable
 
 import numpy as np
@@ -29,6 +31,55 @@ from src.dataset.tf_pipeline import (
     load_chunk_paths
 )
 from src.models.architectures import get_model
+
+
+def save_model_metadata(
+    model_path: str,
+    threshold: float,
+    experiment_name: str,
+    accuracy: float = None,
+    auc: float = None
+) -> None:
+    """
+    Save model metadata (threshold, metrics) to a JSON file.
+
+    The metadata file is saved alongside the model with .json extension.
+
+    Args:
+        model_path: Path to the saved .keras model file
+        threshold: Optimal classification threshold from validation
+        experiment_name: Name of the experiment
+        accuracy: Validation accuracy (optional)
+        auc: Validation AUC (optional)
+    """
+    metadata_path = Path(model_path).with_suffix('.json')
+    metadata = {
+        'threshold': threshold,
+        'experiment_name': experiment_name,
+        'accuracy': accuracy,
+        'auc': auc
+    }
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=2)
+    print(f"Saved model metadata to {metadata_path}")
+
+
+def load_model_metadata(model_path: str) -> Dict:
+    """
+    Load model metadata from the JSON file alongside the model.
+
+    Args:
+        model_path: Path to the .keras model file
+
+    Returns:
+        Dict with threshold, experiment_name, and optional metrics
+    """
+    metadata_path = Path(model_path).with_suffix('.json')
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
+
+    with open(metadata_path, 'r') as f:
+        return json.load(f)
 
 
 class GarbageCollectorCallback(keras.callbacks.Callback):
@@ -229,13 +280,16 @@ def evaluate_on_test_set(
     test_dataset_path: str,
     class_mapping: Dict,
     model_name: str,
-    threshold: float = 0.5
+    threshold: float = 0.5,
+    batch_size: int = 64
 ) -> Dict:
     """
     Evaluate a trained model on a held-out test set.
 
     Uses the threshold found on the validation set (from evaluate_model)
     to avoid data leakage. Do NOT find a new threshold on test data.
+
+    Loads and processes patches in batches to avoid memory issues.
 
     Args:
         model: Trained Keras model
@@ -244,6 +298,7 @@ def evaluate_on_test_set(
                        e.g. {0: ['normal_from_normal'], 1: ['pure_tumor']}
         model_name: Name for display and temp directory naming
         threshold: Classification threshold (use value from validation)
+        batch_size: Batch size for prediction
 
     Returns:
         Dict with accuracy, AUC, classification report, and predictions
@@ -255,23 +310,39 @@ def evaluate_on_test_set(
     try:
         chunks = load_chunk_paths(binary_test_path)
 
-        X_test, y_test = [], []
-        for chunk_path, label in chunks:
+        # Process chunks in batches to avoid loading all into memory
+        y_true_all = []
+        y_pred_proba_all = []
+
+        print(f"Processing {len(chunks)} chunks...")
+        for i, (chunk_path, label) in enumerate(chunks):
             with np.load(chunk_path) as data:
-                X_test.append(data['X'])
-                y_test.extend([label] * len(data['X']))
+                X_chunk = data['X']
+                n_samples = len(X_chunk)
+                y_true_all.extend([label] * n_samples)
 
-        X_test = np.concatenate(X_test, axis=0)
-        y_test = np.array(y_test)
+                # Predict in batches within the chunk
+                for start in range(0, n_samples, batch_size):
+                    end = min(start + batch_size, n_samples)
+                    batch_proba = model.predict(
+                        X_chunk[start:end], verbose=0
+                    )
+                    y_pred_proba_all.extend(batch_proba.flatten())
 
-        y_pred_proba = model.predict(X_test, batch_size=64, verbose=1)
-        y_pred = (y_pred_proba >= threshold).astype(int).flatten()
+            if (i + 1) % 10 == 0:
+                print(f"  Processed {i + 1}/{len(chunks)} chunks")
+
+        y_test = np.array(y_true_all)
+        y_pred_proba = np.array(y_pred_proba_all)
+        y_pred = (y_pred_proba >= threshold).astype(int)
 
         accuracy = accuracy_score(y_test, y_pred)
         auc = roc_auc_score(y_test, y_pred_proba)
         report = classification_report(
             y_test, y_pred, target_names=['Normal', 'Tumor']
         )
+
+        print(f"Processed {len(y_test):,} samples total")
 
         return {
             'accuracy': accuracy,
@@ -397,7 +468,17 @@ def run_binary_experiment(
         
         # Evaluate
         results = evaluate_model(model, val_ds, exp['name'], history, keep_predictions=keep_predictions)
-        
+
+        # Save model metadata (threshold, metrics) alongside the model
+        model_path = f"./models/{exp['name'].replace(' ', '_').lower()}.keras"
+        save_model_metadata(
+            model_path,
+            threshold=results['threshold'],
+            experiment_name=exp['name'],
+            accuracy=results['accuracy'],
+            auc=results['auc']
+        )
+
         return {
             'model': model,
             'history': history,
