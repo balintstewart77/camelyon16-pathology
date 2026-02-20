@@ -281,7 +281,8 @@ def evaluate_on_test_set(
     class_mapping: Dict,
     model_name: str,
     threshold: float = 0.5,
-    batch_size: int = 64
+    batch_size: int = 64,
+    normalise: bool = False
 ) -> Dict:
     """
     Evaluate a trained model on a held-out test set.
@@ -299,6 +300,7 @@ def evaluate_on_test_set(
         model_name: Name for display and temp directory naming
         threshold: Classification threshold (use value from validation)
         batch_size: Batch size for prediction
+        normalise: Apply per-patch normalisation (zero mean, unit std per channel)
 
     Returns:
         Dict with accuracy, AUC, classification report, and predictions
@@ -317,7 +319,20 @@ def evaluate_on_test_set(
         print(f"Processing {len(chunks)} chunks...")
         for i, (chunk_path, label) in enumerate(chunks):
             with np.load(chunk_path) as data:
-                X_chunk = data['X']
+                X_chunk = data['X'].astype(np.float32)  # Ensure float32
+
+                # Apply same preprocessing as training pipeline
+                if X_chunk.max() > 1.5:
+                    X_chunk = X_chunk / 255.0
+                X_chunk = np.clip(X_chunk, 0.0, 1.0)
+
+                # Apply per-patch normalisation if model was trained with it
+                # (zero mean, unit std per channel)
+                if normalise:
+                    mean = X_chunk.mean(axis=(1, 2), keepdims=True)
+                    std = X_chunk.std(axis=(1, 2), keepdims=True) + 1e-7
+                    X_chunk = (X_chunk - mean) / std
+
                 n_samples = len(X_chunk)
                 y_true_all.extend([label] * n_samples)
 

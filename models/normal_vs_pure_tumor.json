@@ -1,0 +1,6 @@
+{
+  "threshold": 0.33681705594062805,
+  "experiment_name": "Normal vs Pure Tumor",
+  "accuracy": 0.8214646464646465,
+  "auc": 0.8893124426078971
+}
