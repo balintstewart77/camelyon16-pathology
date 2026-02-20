@@ -30,3 +30,6 @@ raw_data/
 *.pth
 *.h5
 *.pb
+*.png
+models/*.keras
+models/*.json
