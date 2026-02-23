@@ -38,7 +38,8 @@ def save_model_metadata(
     threshold: float,
     experiment_name: str,
     accuracy: float = None,
-    auc: float = None
+    auc: float = None,
+    normalise_patches: bool = False
 ) -> None:
     """
     Save model metadata (threshold, metrics) to a JSON file.
@@ -51,13 +52,15 @@ def save_model_metadata(
         experiment_name: Name of the experiment
         accuracy: Validation accuracy (optional)
         auc: Validation AUC (optional)
+        normalise_patches: Whether patches were normalised during training
     """
     metadata_path = Path(model_path).with_suffix('.json')
     metadata = {
         'threshold': threshold,
         'experiment_name': experiment_name,
         'accuracy': accuracy,
-        'auc': auc
+        'auc': auc,
+        'normalise_patches': normalise_patches
     }
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
@@ -491,7 +494,8 @@ def run_binary_experiment(
             threshold=results['threshold'],
             experiment_name=exp['name'],
             accuracy=results['accuracy'],
-            auc=results['auc']
+            auc=results['auc'],
+            normalise_patches=config.normalise_patches
         )
 
         return {
