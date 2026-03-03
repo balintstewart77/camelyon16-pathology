@@ -461,7 +461,7 @@ def run_binary_experiment(
         model = get_model(model_name)
         optimizer = keras.optimizers.Adam(
             learning_rate=learning_rate,
-            clipnorm=1.0 if model_name == 'subtle' else None
+            clipnorm=1.0  # Gradient clipping for training stability
         )
         model.compile(
             optimizer=optimizer,
