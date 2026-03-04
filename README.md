@@ -32,13 +32,13 @@ Boundary regions are critical for understanding invasion patterns and detecting 
 
 ## Key Results
 
-| Experiment | Classes | Test Accuracy | AUC | Finding |
-|------------|---------|---------------|-----|---------|
-| Control | 0 vs 3 | 83.7% | 0.901 | Strong discrimination between normal and pure tumor |
-| Boundary detection | 0 vs 2 | 76.0% | 0.840 | Can detect partial tumor overlap |
-| **Context detection** | 0 vs 1 | 62.7% | 0.604 | Above-chance detection of tumor-adjacent normal tissue |
+| Experiment | Classes | Val AUC | Test AUC | Test Accuracy | Finding |
+|------------|---------|---------|----------|---------------|---------|
+| Control | 0 vs 3 | — | 0.901 | 83.7% | Strong discrimination between normal and pure tumor |
+| Boundary detection | 0 vs 2 | — | 0.840 | 76.0% | Can detect partial tumor overlap |
+| **Context detection** | 0 vs 1 | 0.610 | 0.467 | 41.5% | Weak validation signal does not generalise |
 
-The context detection result (Class 0 vs Class 1) is particularly interesting—the model can distinguish normal tissue from normal slides vs normal tissue from tumor slides at above-random chance levels. This suggests detectable differences in "normal" tissue near tumors, with potential implications for early detection or risk stratification.
+The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides—a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.610), this does not generalise to the held-out test set (AUC 0.467, below chance). The 0.14 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
 
 ## Technical Challenges & Solutions
 
@@ -238,15 +238,15 @@ Key differences from this work:
 - Winners used **two-stage pipelines** with random forest post-processing on heatmaps
 - This project focuses on the **4-class problem** which wasn't part of the original challenge
 
-## Potential Clinical Applications
+## Limitations and Negative Results
 
-The finding that normal tissue from tumor slides is partially distinguishable from truly normal tissue suggests potential applications:
+The context detection experiment (Class 0 vs 1) yielded a key negative result: while the model learns to distinguish normal tissue from tumor slides vs normal slides during training, this does not generalise to the test set. Possible explanations:
 
-1. **Risk stratification** — flagging slides that may warrant closer inspection
-2. **Early detection biomarker** — identifying field effects before visible tumor formation
-3. **Quality control** — detecting potential annotation gaps or missed micro-metastases
+1. **Technical confounding** — the model may detect slide-level batch effects (staining intensity, scanner artifacts) rather than biological signal
+2. **Overfitting** — with subtle true effects, the model may memorise slide-specific features
+3. **No detectable effect** — field cancerisation changes may not be visible at this magnification or in H&E staining
 
-Further validation would be needed before any clinical application.
+This highlights the importance of held-out test evaluation when investigating subtle biological hypotheses.
 
 ## Possible Next Steps
 
