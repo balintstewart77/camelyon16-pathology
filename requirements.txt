@@ -14,8 +14,9 @@ torchstain
 scikit-learn>=1.2,<2
 tensorflow>=2.10.0, <3
 
-# WSI handling (requires openslide-tools system package)
+# WSI handling
 openslide-python>=1.2.0
+openslide-bin>=4.0.0
 
 # AWS S3 access
 boto3>=1.20.0
