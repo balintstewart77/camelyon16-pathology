@@ -91,17 +91,57 @@ class GarbageCollectorCallback(keras.callbacks.Callback):
         gc.collect()
 
 
+class MetadataSavingCheckpoint(keras.callbacks.ModelCheckpoint):
+    """
+    Custom ModelCheckpoint that saves metadata alongside the model.
+
+    This ensures metadata (normalise_patches, experiment_name) is saved
+    every time the model is checkpointed, not just at the end of training.
+    """
+
+    def __init__(self, filepath, experiment_name: str, normalise_patches: bool, **kwargs):
+        super().__init__(filepath, **kwargs)
+        self.experiment_name = experiment_name
+        self.normalise_patches = normalise_patches
+        self.metadata_path = Path(filepath).with_suffix('.json')
+
+    def _save_model(self, epoch, batch, logs):
+        """Override to save metadata alongside model."""
+        super()._save_model(epoch, batch, logs)
+
+        # Save metadata whenever model is saved
+        val_auc = logs.get('val_auc', None)
+        val_accuracy = logs.get('val_accuracy', None)
+
+        metadata = {
+            'experiment_name': self.experiment_name,
+            'normalise_patches': self.normalise_patches,
+            'epoch': epoch,
+            'val_loss': float(logs.get('val_loss', 0)),
+            'val_auc': float(val_auc) if val_auc else None,
+            'val_accuracy': float(val_accuracy) if val_accuracy else None,
+            # Threshold will be updated at end of training
+            'threshold': 0.5,
+            'accuracy': float(val_accuracy) if val_accuracy else None,
+            'auc': float(val_auc) if val_auc else None,
+        }
+
+        with open(self.metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+
 def create_callbacks(
     experiment_name: str,
-    save_dir: str = "./models"
+    save_dir: str = "./models",
+    normalise_patches: bool = False
 ) -> list:
     """
     Create standard training callbacks.
-    
+
     Includes:
     - Early stopping on validation loss
     - Learning rate reduction on plateau
-    - Model checkpointing
+    - Model checkpointing with metadata
     - Garbage collection
     """
     return [
@@ -118,8 +158,10 @@ def create_callbacks(
             min_lr=1e-7,
             verbose=1
         ),
-        keras.callbacks.ModelCheckpoint(
+        MetadataSavingCheckpoint(
             f"{save_dir}/{experiment_name.replace(' ', '_').lower()}.keras",
+            experiment_name=experiment_name,
+            normalise_patches=normalise_patches,
             monitor='val_loss',
             save_best_only=True,
             verbose=1
@@ -473,7 +515,7 @@ def run_binary_experiment(
         print(f"Training: {train_steps} steps/epoch, {epochs} max epochs")
         
         # Train
-        callbacks = create_callbacks(exp['name'])
+        callbacks = create_callbacks(exp['name'], normalise_patches=config.normalise_patches)
         
         history = model.fit(
             train_ds,
