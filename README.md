@@ -34,7 +34,7 @@ Boundary regions are critical for understanding invasion patterns and detecting 
 
 | Experiment | Classes | Val AUC | Test AUC | Test Accuracy | Finding |
 |------------|---------|---------|----------|---------------|---------|
-| Control | 0 vs 3 | — | 0.838 | 78.3% | Strong discrimination between normal and pure tumor |
+| Control | 0 vs 3 | 0.870 | 0.838 | 78.3% | Strong discrimination between normal and pure tumor |
 | Boundary detection | 0 vs 2 | 0.727 | 0.633 | 58.0% | Partial generalisation with 0.09 gap |
 | **Context detection** | 0 vs 1 | 0.627 | 0.494 | 48.8% | Weak validation signal does not generalise |
 
