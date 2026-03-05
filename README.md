@@ -34,11 +34,13 @@ Boundary regions are critical for understanding invasion patterns and detecting 
 
 | Experiment | Classes | Val AUC | Test AUC | Test Accuracy | Finding |
 |------------|---------|---------|----------|---------------|---------|
-| Control | 0 vs 3 | — | 0.901 | 83.7% | Strong discrimination between normal and pure tumor |
-| Boundary detection | 0 vs 2 | — | 0.840 | 76.0% | Can detect partial tumor overlap |
-| **Context detection** | 0 vs 1 | 0.610 | 0.467 | 41.5% | Weak validation signal does not generalise |
+| Control | 0 vs 3 | — | 0.838 | 78.3% | Strong discrimination between normal and pure tumor |
+| Boundary detection | 0 vs 2 | 0.727 | 0.633 | 58.0% | Partial generalisation with 0.09 gap |
+| **Context detection** | 0 vs 1 | 0.627 | 0.494 | 48.8% | Weak validation signal does not generalise |
 
-The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides—a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.610), this does not generalise to the held-out test set (AUC 0.467, below chance). The 0.14 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
+The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides—a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.627), this does not generalise to the held-out test set (AUC 0.494, at chance). The 0.13 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
+
+The boundary detection experiment shows partial generalisation—the model detects tumor boundary regions above chance on both validation (AUC 0.727) and test (AUC 0.633), though with reduced performance on held-out data.
 
 ## Technical Challenges & Solutions
 
