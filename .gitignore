@@ -33,3 +33,6 @@ raw_data/
 *.png
 models/*.keras
 models/*.json
+
+# other goblins
+**/desktop.ini
