@@ -4,7 +4,7 @@ A deep-learning based implementation of automated tumor detection from Whole Sli
 
 ## The Problem
 
-**Pathologist shortage is critical**: 1 pathologist per 50,000+ people in many regions. Lymph node analysis is particularly time-consuming—multiple nodes per patient, each requiring careful examination, and small metastases are easily missed.
+**Pathologist shortage is critical**: 1 pathologist per 50,000+ people in many regions. Lymph node analysis is particularly time-consuming - multiple nodes per patient, each requiring careful examination, and small metastases are easily missed.
 
 **CAMELYON16** was an international challenge to develop algorithms matching pathologist performance. This project implements a complete pipeline and introduces a novel 4-class approach that captures tissue heterogeneity and may detect subtle tumor-associated changes that traditional binary classification misses.
 
@@ -22,11 +22,11 @@ Most approaches use binary classification (normal vs tumor). This project separa
 **Why does this matter?**
 
 Normal tissue in tumor slides may differ from truly normal tissue due to:
-- **Field cancerisation effect** — molecular changes in tissue adjacent to tumors
-- **Inflammatory response** — immune cell infiltration
-- **Stromal activation** — changes in supporting tissue
-- **Microenvironmental changes** — altered cell signalling
-- **Missed micro-metastases** — small tumors pathologists may have overlooked
+- **Field cancerisation effect**: molecular changes in tissue adjacent to tumors
+- **Inflammatory response**: immune cell infiltration
+- **Stromal activation**: changes in supporting tissue
+- **Microenvironmental changes**: altered cell signalling
+- **Missed micro-metastases**: small tumors pathologists may have overlooked
 
 Boundary regions are critical for understanding invasion patterns and detecting micro-metastases.
 
@@ -38,9 +38,9 @@ Boundary regions are critical for understanding invasion patterns and detecting 
 | Boundary detection | 0 vs 2 | 0.727 | 0.633 | 58.0% | Partial generalisation with 0.09 gap |
 | **Context detection** | 0 vs 1 | 0.627 | 0.494 | 48.8% | Weak validation signal does not generalise |
 
-The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides—a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.627), this does not generalise to the held-out test set (AUC 0.494, at chance). The 0.13 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
+The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides - a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.627), this does not generalise to the held-out test set (AUC 0.494, at chance). The 0.13 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
 
-The boundary detection experiment shows partial generalisation—the model detects tumor boundary regions above chance on both validation (AUC 0.727) and test (AUC 0.633), though with reduced performance on held-out data.
+The boundary detection experiment shows partial generalisation - the model detects tumor boundary regions above chance on both validation (AUC 0.727) and test (AUC 0.633), though with reduced performance on held-out data.
 
 ## Technical Challenges & Solutions
 
@@ -129,7 +129,7 @@ Two-step process to identify valid tissue regions:
 1. **Basic mask**: Convert thumbnail to grayscale, apply brightness threshold (180), edge filtering
 2. **Filtered mask**: Remove high aspect-ratio artifacts (long thin objects) and small regions
 
-This is deliberately stringent—some tissue is occasionally lost, but artifact contamination is minimised.
+This is deliberately stringent - some tissue is occasionally lost, but artifact contamination is minimised.
 
 ## Example Patch Grids
 
@@ -235,8 +235,8 @@ The winning CAMELYON16 submissions achieved:
 - **Lesion-level FROC**: ~0.8 (localisation task)
 
 Key differences from this work:
-- Challenge winners used **transfer learning** (GoogLeNet/ImageNet) — this project trains from scratch
-- Winners used **millions of patches** — this project uses ~400k due to storage constraints
+- Challenge winners used **transfer learning** (GoogLeNet/ImageNet) - this project trains from scratch
+- Winners used **millions of patches** - this project uses ~400k due to storage constraints
 - Winners used **two-stage pipelines** with random forest post-processing on heatmaps
 - This project focuses on the **4-class problem** which wasn't part of the original challenge
 
@@ -244,19 +244,19 @@ Key differences from this work:
 
 The context detection experiment (Class 0 vs 1) yielded a key negative result: while the model learns to distinguish normal tissue from tumor slides vs normal slides during training, this does not generalise to the test set. Possible explanations:
 
-1. **Technical confounding** — the model may detect slide-level batch effects (staining intensity, scanner artifacts) rather than biological signal
-2. **Overfitting** — with subtle true effects, the model may memorise slide-specific features
-3. **No detectable effect** — field cancerisation changes may not be visible at this magnification or in H&E staining
+1. **Technical confounding**: the model may detect slide-level batch effects (staining intensity, scanner artifacts) rather than biological signal
+2. **Overfitting**: with subtle true effects, the model may memorise slide-specific features
+3. **No detectable effect**: field cancerisation changes may not be visible at this magnification or in H&E staining
 
 This highlights the importance of held-out test evaluation when investigating subtle biological hypotheses.
 
 ## Possible Next Steps
 
-1. **Analyse prediction patterns** — examine high-confidence predictions spatially (are they near tumor boundaries?)
-2. **Full 4-class model** — train a single model on all 4 classes
-3. **Attention mechanisms** — add attention layers for better boundary detection
-4. **Transfer learning** — compare performance with ImageNet-pretrained backbones
-5. **Multi-scale features** — incorporate context from multiple magnification levels
+1. **Analyse prediction patterns**: examine high-confidence predictions spatially (are they near tumor boundaries?)
+2. **Full 4-class model**: train a single model on all 4 classes
+3. **Attention mechanisms**: add attention layers for better boundary detection
+4. **Transfer learning**: compare performance with ImageNet-pretrained backbones
+5. **Multi-scale features**: incorporate context from multiple magnification levels
 
 ## Dataset
 
