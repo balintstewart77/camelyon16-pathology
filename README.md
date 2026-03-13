@@ -1,6 +1,6 @@
 # CAMELYON16 Tumor Detection Pipeline
 
-A deep-learning based implementation of automated tumour detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset, featuring a novel 4-class classification approach
+A deep-learning based implementation of automated tumor detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset, featuring a novel 4-class classification approach
 
 ## The Problem
 
