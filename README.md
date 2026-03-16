@@ -134,10 +134,10 @@ This is deliberately stringent - some tissue is occasionally lost, but artifact 
 ## Example Patch Grids
 
 ### Normal slide (Class 0 patches)
-![Grid view of sampled normal patches from a CAMELYON16 slide](assets/images/normal_slide_grid_view.png)
+<!-- Grid view image generated in notebook 02_patch_extraction -->
 
 ### Tumor slide (3-class sampling)
-![Grid view of tumor patch sampling across three classes](assets/images/tumor_slide_3_class_grid_view.png)
+<!-- 3-class grid view image generated in notebook 02_patch_extraction -->
 
 Green = normal (Class 1), Orange = boundary (Class 2), Red = pure tumor (Class 3)
 
@@ -216,7 +216,7 @@ results = run_binary_experiment(
 ```
 src/
 ├── data/           # Data loading and preprocessing
-│   ├── s3_utils.py         # AWS S3 access
+│   ├── __init__.py         # AWS S3 access (list/download from public bucket)
 │   ├── tissue_mask.py      # Tissue detection from thumbnails
 │   ├── tumor_polygons.py   # XML annotation parsing
 │   └── patch_extraction.py # Patch sampling and extraction
