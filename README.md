@@ -1,32 +1,32 @@
-# CAMELYON16 Tumor Detection Pipeline
+# CAMELYON16 Tumour Detection Pipeline
 
-A deep-learning based implementation of automated tumor detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset, featuring a novel 4-class classification approach
+A deep-learning based implementation of automated tumour detection from Whole Slide Images (WSIs) using the CAMELYON16 dataset, featuring a novel 4-class classification approach
 
 ## The Problem
 
 **Pathologist shortage is critical**: 1 pathologist per 50,000+ people in many regions. Lymph node analysis is particularly time-consuming - multiple nodes per patient, each requiring careful examination, and small metastases are easily missed.
 
-**CAMELYON16** was an international challenge to develop algorithms matching pathologist performance. This project implements a complete pipeline and introduces a novel 4-class approach that captures tissue heterogeneity and may detect subtle tumor-associated changes that traditional binary classification misses.
+**CAMELYON16** was an international challenge to develop algorithms matching pathologist performance. This project implements a complete pipeline and introduces a novel 4-class approach that captures tissue heterogeneity and may detect subtle tumour-associated changes that traditional binary classification misses.
 
 ## Why 4 Classes?
 
-Most approaches use binary classification (normal vs tumor). This project separates patches into 4 classes:
+Most approaches use binary classification (normal vs tumour). This project separates patches into 4 classes:
 
 | Class | Description | Source |
 |-------|-------------|--------|
 | 0 | Normal tissue | Normal slides |
-| 1 | Normal tissue | Tumor slides (0% tumor overlap) |
-| 2 | Boundary tissue | Tumor slides (1-50% tumor overlap) |
-| 3 | Pure tumor | Tumor slides (>50% tumor overlap) |
+| 1 | Normal tissue | Tumour slides (0% tumour overlap) |
+| 2 | Boundary tissue | Tumour slides (1-50% tumour overlap) |
+| 3 | Pure tumour | Tumour slides (>50% tumour overlap) |
 
 **Why does this matter?**
 
-Normal tissue in tumor slides may differ from truly normal tissue due to:
-- **Field cancerisation effect**: molecular changes in tissue adjacent to tumors
+Normal tissue in tumour slides may differ from truly normal tissue due to:
+- **Field cancerisation effect**: molecular changes in tissue adjacent to tumours
 - **Inflammatory response**: immune cell infiltration
 - **Stromal activation**: changes in supporting tissue
 - **Microenvironmental changes**: altered cell signalling
-- **Missed micro-metastases**: small tumors pathologists may have overlooked
+- **Missed micro-metastases**: small tumours pathologists may have overlooked
 
 Boundary regions are critical for understanding invasion patterns and detecting micro-metastases.
 
@@ -34,13 +34,13 @@ Boundary regions are critical for understanding invasion patterns and detecting 
 
 | Experiment | Classes | Val AUC | Test AUC | Test Accuracy | Finding |
 |------------|---------|---------|----------|---------------|---------|
-| Control | 0 vs 3 | 0.870 | 0.838 | 78.3% | Strong discrimination between normal and pure tumor |
+| Control | 0 vs 3 | 0.870 | 0.838 | 78.3% | Strong discrimination between normal and pure tumour |
 | Boundary detection | 0 vs 2 | 0.727 | 0.633 | 58.0% | Partial generalisation with 0.09 gap |
 | **Context detection** | 0 vs 1 | 0.627 | 0.494 | 48.8% | Weak validation signal does not generalise |
 
-The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumor slides differs detectably from normal tissue in truly normal slides - a potential "field cancerisation" effect. While the model achieves above-random performance on the validation set (AUC 0.627), this does not generalise to the held-out test set (AUC 0.494, at chance). The 0.13 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
+The context detection experiment (Class 0 vs Class 1) tests whether normal tissue from tumour slides differs detectably from normal tissue in truly normal slides (a potential "field cancerisation" effect). While the model achieves above-random performance on the validation set (AUC 0.627), this does not generalise to the held-out test set (AUC 0.494, at chance). The 0.13 gap between validation and test performance suggests the model may be learning slide-specific artifacts (staining variation, scanner differences) rather than true biological signal. This negative result is informative: if field cancerisation effects exist in this dataset, they are subtle enough to be confounded by technical variation.
 
-The boundary detection experiment shows partial generalisation - the model detects tumor boundary regions above chance on both validation (AUC 0.727) and test (AUC 0.633), though with reduced performance on held-out data.
+The boundary detection experiment shows partial generalisation: the model detects tumour boundary regions above chance on both validation (AUC 0.727) and test (AUC 0.633), though with reduced performance on held-out data.
 
 ## Technical Challenges & Solutions
 
@@ -69,44 +69,51 @@ Patches from the same slide share staining characteristics, scanner artifacts, a
 - No slide ever appears in both train and validation sets
 
 ### Challenge 4: Class imbalance in patch availability
-Tumor and boundary regions are rare compared to normal tissue.
+Tumour and boundary regions are rare compared to normal tissue.
 
 **Solution**: Adaptive dense sampling
 - Normal regions: 224px stride (sparse sampling for diversity)
 - Boundary regions: 56px stride (4× density to capture rare class)
-- Tumor regions: 112px stride (2× density)
+- Tumour regions: 112px stride (2× density)
 
 ## Pipeline Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      S3 Storage Layer                       │
-│  Training: 160 normal WSIs, 111 tumor WSIs + annotations    │
-│  Test: 80 normal WSIs, 49 tumor WSIs + annotations          │
+│  Training: 160 normal WSIs, 111 tumour WSIs + annotations   │
+│  Test: 80 normal WSIs, 49 tumour WSIs + annotations         │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │               Slide Processing (Per WSI)                    │
-│  1. Download to /tmp  →  2. Tissue Mask  →  3. Grid Sample  │
-│                          (threshold +      (adaptive stride)│
-│                           filtering)                        │
+│  1. Download to /tmp                                        │
+│  2. Tissue mask (HSV threshold + morphological filtering)   │
+│  3. Grid sampling (adaptive stride per class)               │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              4-Class Patch Extraction                       │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐            │
-│  │ Class 0 │ │ Class 1 │ │ Class 2 │ │ Class 3 │            │
-│  │ Normal  │ │ Normal  │ │Boundary │ │  Pure   │            │
-│  │from Norm│ │from Tum │ │ (1-50%) │ │ Tumor   │            │
-│  │stride224│ │stride224│ │stride 56│ │stride112│            │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘            │
+│           Macenko Stain Normalisation (torchstain)          │
+│  Reference slide: tumor_050.tif                             │
+│  Applied per-patch before any augmentation                  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Slide-Aware Chunking                           │
+│              4-Class Patch Extraction                        │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐          │
+│  │ Class 0 │ │ Class 1 │ │ Class 2 │ │ Class 3 │          │
+│  │ Normal  │ │ Normal  │ │Boundary │ │  Pure   │          │
+│  │from Norm│ │from Tum │ │ (1-50%) │ │ Tumour  │          │
+│  │stride224│ │stride224│ │stride 56│ │stride112│          │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Slide-Aware Chunking                            │
 │  • No slide split across chunks (prevents data leakage)     │
 │  • ~1000 patches per .npz file                              │
 │  • Metadata tracking: slide IDs, patch counts               │
@@ -116,9 +123,18 @@ Tumor and boundary regions are rare compared to normal tissue.
 ┌─────────────────────────────────────────────────────────────┐
 │           TensorFlow Training Pipeline                      │
 │  • Parallel chunk loading (tf.data.interleave)              │
-│  • Balanced sampling (50:50 class ratio)                    │
-│  • Augmentation: flips, rotations, brightness               │
-│  • Optional stain normalisation                             │
+│  • Balanced sampling (50:50 class ratio per batch)          │
+│  • Per-patch channel normalisation (zero mean, unit std)    │
+│  • Augmentation: flips, rotations, brightness jitter        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│           Binary Classification Experiments                 │
+│  Exp 2: Normal vs Pure Tumour     (strong signal)           │
+│  Exp 3: Normal vs Boundary        (moderate signal)         │
+│  Exp 5: Slide Context / Field     (null result — 4 models)  │
+│  Evaluation: ROC-AUC, Youden's J threshold, test holdout    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,10 +152,10 @@ This is deliberately stringent - some tissue is occasionally lost, but artifact 
 ### Normal slide (Class 0 patches)
 <!-- Grid view image generated in notebook 02_patch_extraction -->
 
-### Tumor slide (3-class sampling)
+### Tumour slide (3-class sampling)
 <!-- 3-class grid view image generated in notebook 02_patch_extraction -->
 
-Green = normal (Class 1), Orange = boundary (Class 2), Red = pure tumor (Class 3)
+Green = normal (Class 1), Orange = boundary (Class 2), Red = pure tumour (Class 3)
 
 ## Model Architecture
 
@@ -167,9 +183,9 @@ Generated from the full CAMELYON16 training set:
 | Class | Patches | Chunks | Source |
 |-------|---------|--------|--------|
 | normal_from_normal | 101,724 | 74 | 147 normal slides |
-| normal_from_tumor | 100,011 | 56 | 111 tumor slides |
-| boundary_tumor | 91,980 | 70 | 111 tumor slides |
-| pure_tumor | 86,506 | 58 | 111 tumor slides |
+| normal_from_tumor | 100,011 | 56 | 111 tumour slides |
+| boundary_tumor | 91,980 | 70 | 111 tumour slides |
+| pure_tumor | 86,506 | 58 | 111 tumour slides |
 | **Total** | **380,221** | **258** | |
 
 ## Installation
@@ -200,9 +216,9 @@ from src.models.training import run_binary_experiment
 
 # Experiment types:
 # 1: Normal vs Boundary (0 vs 2)
-# 2: Normal vs Pure Tumor (0 vs 3)  
+# 2: Normal vs Pure Tumour (0 vs 3)  
 # 3: Slide Context (0 vs 1)
-# 4: Normal vs Any Tumor (0 vs 1,2,3)
+# 4: Normal vs Any Tumour (0 vs 1,2,3)
 
 results = run_binary_experiment(
     dataset_path="./data/patches",
@@ -231,7 +247,7 @@ src/
 ## Comparison to CAMELYON16 Challenge
 
 The winning CAMELYON16 submissions achieved:
-- **Slide-level AUC**: 0.994 (binary: tumor present or not)
+- **Slide-level AUC**: 0.994 (binary: tumour present or not)
 - **Lesion-level FROC**: ~0.8 (localisation task)
 
 Key differences from this work:
@@ -242,7 +258,7 @@ Key differences from this work:
 
 ## Limitations and Negative Results
 
-The context detection experiment (Class 0 vs 1) yielded a key negative result: while the model learns to distinguish normal tissue from tumor slides vs normal slides during training, this does not generalise to the test set. Possible explanations:
+The context detection experiment (Class 0 vs 1) yielded a key negative result: while the model learns to distinguish normal tissue from tumour slides vs normal slides during training, this does not generalise to the test set. Possible explanations:
 
 1. **Technical confounding**: the model may detect slide-level batch effects (staining intensity, scanner artifacts) rather than biological signal
 2. **Overfitting**: with subtle true effects, the model may memorise slide-specific features
@@ -252,7 +268,7 @@ This highlights the importance of held-out test evaluation when investigating su
 
 ## Possible Next Steps
 
-1. **Analyse prediction patterns**: examine high-confidence predictions spatially (are they near tumor boundaries?)
+1. **Analyse prediction patterns**: examine high-confidence predictions spatially (are they near tumour boundaries?)
 2. **Full 4-class model**: train a single model on all 4 classes
 3. **Attention mechanisms**: add attention layers for better boundary detection
 4. **Transfer learning**: compare performance with ImageNet-pretrained backbones
@@ -262,8 +278,8 @@ This highlights the importance of held-out test evaluation when investigating su
 
 Uses the publicly available CAMELYON16 dataset:
 - **Normal slides**: 160 slides of healthy lymph node tissue
-- **Tumor slides**: 111 slides with metastatic breast cancer + XML annotations
-- **Test set**: 129 slides (80 normal, 49 tumor)
+- **Tumour slides**: 111 slides with metastatic breast cancer + XML annotations
+- **Test set**: 129 slides (80 normal, 49 tumour)
 
 Data is accessed directly from AWS S3 (no credentials needed):
 ```

@@ -6,9 +6,9 @@ slide-aware chunking to prevent data leakage.
 
 Classes:
     0: Normal tissue from normal slides
-    1: Normal tissue from tumor slides
-    2: Boundary tissue (partial tumor overlap)
-    3: Pure tumor tissue
+    1: Normal tissue from tumour slides
+    2: Boundary tissue (partial tumour overlap)
+    3: Pure tumour tissue
 
 Key Design Decisions:
     - Slide-aware chunking: No slide is split across chunks
@@ -189,7 +189,7 @@ class FourClassGenerator:
         patches_per_class: Dict[int, int]
     ) -> Dict[int, List[Tuple[np.ndarray, int, str, int, int]]]:
         """
-        Extract patches from a tumor slide, organised by class.
+        Extract patches from a tumour slide, organised by class.
 
         Returns dict mapping class (1,2,3) to patch lists with coordinates.
         """

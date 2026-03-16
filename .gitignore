@@ -34,5 +34,8 @@ raw_data/
 models/*.keras
 models/*.json
 
+# Allow image assets for blog/README
+!assets/*.png
+
 # other goblins
 **/desktop.ini

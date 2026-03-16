@@ -5,7 +5,7 @@ This module handles the core task of extracting 224x224 patches from
 gigapixel WSI files. The key challenges are:
 1. WSIs don't fit in memory - we work with coordinates, not pixels
 2. We want patches from tissue, not background
-3. For tumor slides, we want to control patch class distribution
+3. For tumour slides, we want to control patch class distribution
 """
 
 import random
@@ -158,12 +158,12 @@ def sample_coordinates_by_class(
     patch_size: int = 224
 ) -> Dict[int, List[Tuple[int, int]]]:
     """
-    Sample patch coordinates from a tumor slide, organized by class.
+    Sample patch coordinates from a tumour slide, organized by class.
     
     Uses different sampling densities for different regions:
     - Normal regions: sparse sampling (tissue is abundant)
     - Boundary regions: dense sampling (rare and informative)
-    - Tumor regions: moderate sampling
+    - Tumour regions: moderate sampling
     
     Args:
         slide_path: Path to WSI file

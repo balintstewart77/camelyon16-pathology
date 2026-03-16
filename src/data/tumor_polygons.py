@@ -1,9 +1,9 @@
 """
-Tumor annotation handling for CAMELYON16 dataset.
+Tumour annotation handling for CAMELYON16 dataset.
 
-Each tumor slide has an XML file with polygon annotations tracing
-tumor region boundaries. This module handles parsing those files
-and calculating tumor overlap for patch labeling.
+Each tumour slide has an XML file with polygon annotations tracing
+tumour region boundaries. This module handles parsing those files
+and calculating tumour overlap for patch labeling.
 """
 
 import os
@@ -20,7 +20,7 @@ from config import PatchLabelConfig, DEFAULT_CONFIG
 
 def load_tumor_polygons(xml_path: str) -> List[Polygon]:
     """
-    Parse CAMELYON16 XML annotation file and extract tumor polygons.
+    Parse CAMELYON16 XML annotation file and extract tumour polygons.
     
     The XML format contains <Annotation> elements, each with a list of
     <Coordinate> elements defining the polygon vertices.
@@ -94,12 +94,12 @@ def calculate_tumor_overlap(
     patch_size: int = 224
 ) -> float:
     """
-    Calculate what fraction of a patch overlaps with tumor regions.
+    Calculate what fraction of a patch overlaps with tumour regions.
     
     Args:
         x: Patch center X coordinate (in slide coordinates)
         y: Patch center Y coordinate (in slide coordinates)
-        polygons: List of tumor Polygon objects
+        polygons: List of tumour Polygon objects
         patch_size: Size of the square patch
         
     Returns:
@@ -118,7 +118,7 @@ def calculate_tumor_overlap(
     patch_box = box(x - half, y - half, x + half, y + half)
     patch_area = patch_size * patch_size
     
-    # Sum intersection areas with all tumor polygons
+    # Sum intersection areas with all tumour polygons
     total_overlap = 0.0
     for polygon in polygons:
         try:
@@ -140,19 +140,19 @@ def classify_patch(
     config: PatchLabelConfig = None
 ) -> int:
     """
-    Classify a patch into one of three tumor-related classes.
+    Classify a patch into one of three tumour-related classes.
     
-    Classes (for patches from tumor slides):
+    Classes (for patches from tumour slides):
     - 1: Normal tissue (overlap < boundary_threshold)
     - 2: Boundary tissue (boundary_threshold <= overlap < tumor_threshold)
-    - 3: Pure tumor (overlap >= tumor_threshold)
+    - 3: Pure tumour (overlap >= tumor_threshold)
     
     Note: Class 0 (normal from normal slides) is handled separately
-    since those slides have no tumor annotations.
+    since those slides have no tumour annotations.
     
     Args:
         x, y: Patch center coordinates
-        polygons: Tumor polygons from XML
+        polygons: Tumour polygons from XML
         patch_size: Patch size in pixels
         config: Classification thresholds
         
@@ -165,11 +165,11 @@ def classify_patch(
     overlap = calculate_tumor_overlap(x, y, polygons, patch_size)
     
     if overlap < config.zero_tolerance:
-        return 1  # Normal tissue on tumor slide
+        return 1  # Normal tissue on tumour slide
     elif overlap < config.tumor_threshold:
         return 2  # Boundary tissue
     else:
-        return 3  # Pure tumor
+        return 3  # Pure tumour
 
 
 def get_patch_label_binary(
@@ -180,18 +180,18 @@ def get_patch_label_binary(
     threshold: float = 0.5
 ) -> int:
     """
-    Simple binary label: is this patch tumor or not?
+    Simple binary label: is this patch tumour or not?
     
     Simpler version of classify_patch for basic experiments.
     
     Args:
         x, y: Patch center coordinates
-        polygons: Tumor polygons
+        polygons: Tumour polygons
         patch_size: Patch size
-        threshold: Overlap threshold for tumor label
+        threshold: Overlap threshold for tumour label
         
     Returns:
-        0 for normal, 1 for tumor
+        0 for normal, 1 for tumour
     """
     overlap = calculate_tumor_overlap(x, y, polygons, patch_size)
     return 1 if overlap >= threshold else 0

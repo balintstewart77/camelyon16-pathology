@@ -434,7 +434,7 @@ def run_binary_experiment(
     Experiment types:
         1: Normal vs Any Tumor (0 vs 1,2,3)
         2: Normal vs Pure Tumor (0 vs 3)
-        3: Slide Context (0 vs 1) - can we detect tumor-adjacent tissue?
+        3: Slide Context (0 vs 1) - can we detect tumour-adjacent tissue?
         4: Normal vs Actual Tumor (0 vs 2,3)
         5: Normal vs Boundary (0 vs 2)
     

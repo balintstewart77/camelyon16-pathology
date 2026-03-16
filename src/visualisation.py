@@ -22,7 +22,7 @@ def find_zoom_region_by_coords(
 ) -> Tuple[int, int, int, int]:
     """
     Find a zoom region centered on the mean of coordinates.
-    Good for tumor regions where patches cluster around annotations.
+    Good for tumour regions where patches cluster around annotations.
 
     Args:
         coords: List of (x, y) patch coordinates
@@ -118,18 +118,18 @@ def visualise_tissue_outline(
     """
     Visualise tissue regions as an outline contour on the slide thumbnail.
 
-    Optionally overlay tumor regions as semi-transparent filled polygons.
-    Useful for blog figures showing tissue detection and tumor annotations.
+    Optionally overlay tumour regions as semi-transparent filled polygons.
+    Useful for blog figures showing tissue detection and tumour annotations.
 
     Args:
         slide: OpenSlide object
         tissue_mask: Binary tissue mask (from get_tissue_mask or compute_foreground_mask)
-        tumor_polygons: Optional list of Shapely Polygon objects for tumor regions
+        tumor_polygons: Optional list of Shapely Polygon objects for tumour regions
         thumbnail_size: Size of thumbnail to display
         outline_colour: Colour for tissue outline (default: lime green)
         outline_width: Line width for tissue outline
-        tumor_colour: RGB tuple for tumor fill (values 0-1)
-        tumor_alpha: Transparency of tumor fill (0-1)
+        tumor_colour: RGB tuple for tumour fill (values 0-1)
+        tumor_alpha: Transparency of tumour fill (0-1)
         title: Optional plot title
         figsize: Figure size
         save_as_png: If provided, save figure to this filename instead of displaying
@@ -162,7 +162,7 @@ def visualise_tissue_outline(
     ax.contour(mask_resized.astype(float), levels=[0.5],
                colors=outline_colour, linewidths=outline_width)
 
-    # Draw tumor regions if provided
+    # Draw tumour regions if provided
     if tumor_polygons:
         for polygon in tumor_polygons:
             try:

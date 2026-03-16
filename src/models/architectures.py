@@ -11,7 +11,7 @@ from tensorflow.keras import layers
 
 def build_simple_cnn(input_shape=(224, 224, 3)) -> keras.Model:
     """
-    Simple CNN that works well for basic tumor detection.
+    Simple CNN that works well for basic tumour detection.
     
     Architecture:
     - 3 convolutional blocks with increasing filters
@@ -20,7 +20,7 @@ def build_simple_cnn(input_shape=(224, 224, 3)) -> keras.Model:
     
     This model is good for:
     - Baseline experiments
-    - Tasks with clear visual differences (normal vs pure tumor)
+    - Tasks with clear visual differences (normal vs pure tumour)
     
     Parameters: ~200K
     
@@ -63,7 +63,7 @@ def build_subtle_model(input_shape=(224, 224, 3)) -> keras.Model:
     Model for detecting subtle contextual differences.
     
     Designed for harder tasks like:
-    - Normal from normal vs normal from tumor slides
+    - Normal from normal vs normal from tumour slides
     - Boundary tissue detection
     
     Key differences from simple CNN:

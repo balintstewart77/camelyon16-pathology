@@ -1,5 +1,5 @@
 """
-Configuration for CAMELYON16 tumor detection pipeline.
+Configuration for CAMELYON16 tumour detection pipeline.
 
 All configurable parameters in one place for easy modification and transparency.
 """
@@ -49,15 +49,15 @@ class TissueMaskConfig:
 
 @dataclass  
 class PatchLabelConfig:
-    """Configuration for labeling patches based on tumor overlap."""
+    """Configuration for labeling patches based on tumour overlap."""
     
     # Overlap thresholds for 4-class classification:
-    # Class 0: Normal from normal slides (no tumor annotation)
-    # Class 1: Normal from tumor slides (overlap < boundary_threshold)
+    # Class 0: Normal from normal slides (no tumour annotation)
+    # Class 1: Normal from tumour slides (overlap < boundary_threshold)
     # Class 2: Boundary (boundary_threshold <= overlap < tumor_threshold)
-    # Class 3: Pure tumor (overlap >= tumor_threshold)
+    # Class 3: Pure tumour (overlap >= tumor_threshold)
     
-    boundary_threshold: float = 0.01   # 1% tumor overlap
+    boundary_threshold: float = 0.01   # 1% tumour overlap
     tumor_threshold: float = 0.50      # 50% tumor overlap
     
     # Tolerance for "zero overlap" (floating point safety)
@@ -72,7 +72,7 @@ class SamplingConfig:
     # stride == patch_size means no overlap
     normal_stride: int = 224    # No overlap for abundant normal tissue
     boundary_stride: int = 56   # Dense sampling for rare boundary regions
-    tumor_stride: int = 112     # Moderate density for tumor regions
+    tumor_stride: int = 112     # Moderate density for tumour regions
 
 
 @dataclass
