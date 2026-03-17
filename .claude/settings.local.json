@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"import torchstain; n = torchstain.normalizers; print\\(type\\(n\\)\\); from torchstain.normalizers.macenko import MacenkoNormalizer; print\\(''works''\\)\")"
+      "Bash(python -c \"import torchstain; n = torchstain.normalizers; print\\(type\\(n\\)\\); from torchstain.normalizers.macenko import MacenkoNormalizer; print\\(''works''\\)\")",
+      "Bash(python _fix_fstring.py)",
+      "Bash(rm _fix_fstring.py)"
     ]
   }
 }
