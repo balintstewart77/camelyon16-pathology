@@ -2,7 +2,6 @@
 numpy>=1.23,<3
 pandas>=1.5,<3
 matplotlib>=3.7,<4
-seaborn>=0.12,<1
 
 # Image processing
 pillow>=8,<12
@@ -20,7 +19,3 @@ openslide-bin>=4.0.0
 
 # AWS S3 access
 boto3>=1.20.0
-
-# Utilities
-tqdm>=4.62.0
-requests
