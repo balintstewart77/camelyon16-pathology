@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import torchstain; n = torchstain.normalizers; print\\(type\\(n\\)\\); from torchstain.normalizers.macenko import MacenkoNormalizer; print\\(''works''\\)\")"
+    ]
+  }
+}
