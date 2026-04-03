@@ -197,6 +197,26 @@ pip install -r requirements.txt
 apt-get install -y openslide-tools
 ```
 
+## GitHub Pages
+
+The blog notebook [notebooks/05_blog_tumor_detection.ipynb](C:/Users/balin/Desktop/camelyon16-pathology/notebooks/05_blog_tumor_detection.ipynb) is published as a static page from [docs/index.html](C:/Users/balin/Desktop/camelyon16-pathology/docs/index.html).
+
+To refresh the published page after changing the notebook:
+
+1. Re-run the notebook so the `.ipynb` contains the latest code and saved outputs.
+2. Rebuild the static HTML export:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/export_blog_notebook.ps1
+```
+
+3. Commit and push the updated notebook and `docs/` files.
+4. GitHub Actions redeploys the site automatically.
+
+Published URL:
+
+`https://balintstewart77.github.io/camelyon16-pathology/`
+
 ## Quick Start
 
 ### 1. Generate Dataset
