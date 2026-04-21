@@ -31,30 +31,27 @@ def build_simple_cnn(input_shape=(224, 224, 3)) -> keras.Model:
         Compiled Keras model
     """
     inputs = keras.Input(shape=input_shape)
-    
+
     # Block 1: 224 -> 112
     x = layers.Conv2D(16, 5, strides=2, padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-    
+
     # Block 2: 112 -> 56
     x = layers.Conv2D(32, 5, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-    
+
     # Block 3: 56 -> 28
     x = layers.Conv2D(64, 5, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-    
+
     # Global pooling -> prediction
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
-    
+
     return keras.Model(inputs, outputs, name='simple_cnn')
 
 
@@ -80,36 +77,32 @@ def build_subtle_model(input_shape=(224, 224, 3)) -> keras.Model:
         Compiled Keras model
     """
     inputs = keras.Input(shape=input_shape)
-    
+
     # Block 1: 224 -> 224 (no downsampling yet - preserve detail)
     x = layers.Conv2D(32, 3, strides=1, padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.2)(x)
-    
+
     # Block 2: 224 -> 112
     x = layers.Conv2D(64, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-    
+
     # Block 3: 112 -> 56
     x = layers.Conv2D(128, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-    
+
     # Block 4: 56 -> 28
     x = layers.Conv2D(256, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.4)(x)
-    
+
     # Global pooling -> prediction
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
-    
+
     return keras.Model(inputs, outputs, name='subtle_model')
 
 
@@ -131,22 +124,19 @@ def build_attention_model(input_shape=(224, 224, 3)) -> keras.Model:
 
     # Feature extraction backbone (same as subtle model)
     x = layers.Conv2D(32, 3, strides=1, padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.2)(x)
 
     x = layers.Conv2D(64, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
 
     x = layers.Conv2D(128, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
 
     x = layers.Conv2D(256, 3, strides=2, padding='same')(x)
-    x = layers.BatchNormalization()(x)
+    x = layers.LayerNormalization()(x)
     x = layers.Activation('relu')(x)
 
     # Spatial attention: learn where to focus
@@ -154,7 +144,6 @@ def build_attention_model(input_shape=(224, 224, 3)) -> keras.Model:
     attention = layers.Conv2D(1, 1, activation='sigmoid', name='attention_map')(x)
     x = layers.Multiply()([x, attention])  # Weight features by attention
 
-    x = layers.Dropout(0.4)(x)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x)
     outputs = layers.Dense(1, activation='sigmoid')(x)
