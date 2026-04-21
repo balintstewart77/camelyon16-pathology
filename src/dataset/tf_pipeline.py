@@ -291,7 +291,7 @@ def _create_single_class_dataset(
         cycle_length=cycle_length,
         block_length=4,
         num_parallel_calls=min(2, cycle_length),  # Cannot exceed cycle_length
-        deterministic=False
+        deterministic=True
     )
 
     # Shuffle within class and repeat indefinitely
@@ -301,9 +301,11 @@ def _create_single_class_dataset(
     return dataset
 
 
+_batch_shuffle_gen = tf.random.Generator.from_seed(42)
+
 def _shuffle_batch(x, y):
     """Shuffle samples within a batch to mix classes."""
-    idx = tf.random.shuffle(tf.range(tf.shape(x)[0]))
+    idx = _batch_shuffle_gen.shuffle(tf.range(tf.shape(x)[0]))
     return tf.gather(x, idx), tf.gather(y, idx)
 
 
@@ -731,7 +733,7 @@ def setup_training_pipeline(
         cycle_length=config.cycle_length,
         normalise=config.normalise_patches
     )
-    train_dataset = train_dataset.repeat()
+    # Note: train_dataset already repeats internally via _create_single_class_dataset
 
     # Create validation dataset using selected approach
     if use_preloaded_val:

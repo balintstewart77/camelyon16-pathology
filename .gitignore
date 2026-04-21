@@ -39,3 +39,4 @@ models/*.json
 
 # other goblins
 **/desktop.ini
+.DS_Store
