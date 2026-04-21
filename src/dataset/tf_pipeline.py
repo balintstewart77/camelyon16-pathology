@@ -305,7 +305,8 @@ _batch_shuffle_gen = tf.random.Generator.from_seed(42)
 
 def _shuffle_batch(x, y):
     """Shuffle samples within a batch to mix classes."""
-    idx = _batch_shuffle_gen.shuffle(tf.range(tf.shape(x)[0]))
+    n = tf.shape(x)[0]
+    idx = tf.argsort(_batch_shuffle_gen.uniform(shape=[n]))
     return tf.gather(x, idx), tf.gather(y, idx)
 
 
