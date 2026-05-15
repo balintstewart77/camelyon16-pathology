@@ -58,9 +58,9 @@ def load_chunk_paths(base_path: str) -> List[Tuple[str, int]]:
         class_dir = base / class_name
         if class_dir.exists():
             found_4class = True
-            for chunk_file in class_dir.glob('*.npz'):
+            for chunk_file in sorted(class_dir.glob('*.npz')):
                 chunks.append((str(chunk_file), label))
-    
+
     if found_4class:
         return chunks
     
@@ -68,9 +68,9 @@ def load_chunk_paths(base_path: str) -> List[Tuple[str, int]]:
     for class_name, label in [('normal', 0), ('tumor', 1)]:
         class_dir = base / class_name
         if class_dir.exists():
-            for chunk_file in class_dir.glob('*.npz'):
+            for chunk_file in sorted(class_dir.glob('*.npz')):
                 chunks.append((str(chunk_file), label))
-    
+
     return chunks
 
 
@@ -640,7 +640,7 @@ def create_binary_dataset(
                 continue
 
             linked = 0
-            for chunk_file in source_dir.glob('*.npz'):
+            for chunk_file in sorted(source_dir.glob('*.npz')):
                 safe_name = f"{source_class}_{chunk_file.name}"
                 link_path = target_dir / safe_name
 

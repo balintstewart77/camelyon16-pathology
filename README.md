@@ -266,9 +266,14 @@ src/
 
 ## Comparison to CAMELYON16 Challenge
 
-The winning CAMELYON16 submissions achieved:
-- **Slide-level AUC**: 0.994 (binary: tumour present or not)
-- **Lesion-level FROC**: ~0.8 (localisation task)
+The strongest CAMELYON16 results reported by the challenge organisers were:
+- **Slide-level AUC**: 0.994 for whole-slide tumour-present vs tumour-absent classification
+- **Lesion-level FROC**: 0.807 for metastasis localisation
+
+A note on reported numbers: the winning group's own early paper reported lower figures
+(AUC 0.925; lesion score 0.7051), while the organisers' later JAMA diagnostic assessment
+reported the top HMS/MIT II submission at AUC 0.994 and FROC 0.807. I use the organisers'
+figures when referring to the benchmark's best reported result.
 
 Key differences from this work:
 - Challenge winners used **transfer learning** (GoogLeNet/ImageNet) - this project trains from scratch
